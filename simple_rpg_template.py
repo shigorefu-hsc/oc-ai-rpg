@@ -90,6 +90,8 @@ NPC_JSON_FILES = {
 
 WATASHI_JSON_FILE = Path("watashi.json")
 STORY_JSON_FILE = Path("story.json")
+INTRO_MUSIC_FILE = Path("intro.mp3")
+LEVEL_MUSIC_FILE = Path("level.mp3")
 
 
 # ============================================================
@@ -702,6 +704,32 @@ def draw_intro_screen(screen, font_l, font_m, font_s, page_text, page_idx, page_
     screen.blit(f_img, (box.right - f_img.get_width() - 24, box.bottom - 46))
 
 
+def switch_music(audio_enabled: bool, current_key: str, target_key: str, target_file: Path) -> str:
+    """
+    BGMを切り替える。target_key が current_key と同じなら何もしない。
+    target_key が空文字なら停止する。
+    """
+    if not audio_enabled:
+        return current_key
+
+    if current_key == target_key:
+        return current_key
+
+    try:
+        if target_key == "":
+            pygame.mixer.music.stop()
+            return ""
+
+        if target_file.exists():
+            pygame.mixer.music.load(str(target_file))
+            pygame.mixer.music.play(-1)  # 無限ループ
+            return target_key
+    except Exception:
+        return current_key
+
+    return current_key
+
+
 # ============================================================
 # メイン
 # ============================================================
@@ -714,6 +742,13 @@ def main():
         print("対処: pip install pygame-ce")
         pygame.quit()
         sys.exit(1)
+
+    # 音声初期化（失敗してもゲームは続行）
+    audio_enabled = True
+    try:
+        pygame.mixer.init()
+    except Exception:
+        audio_enabled = False
 
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
@@ -787,6 +822,7 @@ def main():
     selected_choice = 0
     current_pages = []
     current_page_idx = 0
+    current_music = ""
 
     choice_items = [
         ("ask_self", "自己紹介して"),
@@ -899,6 +935,17 @@ def main():
 
             update_npc_movement(npc_states, dt, freeze=talking)
 
+        # BGM状態を画面状態に同期
+        # - intro: intro.mp3
+        # - play/clear: level.mp3
+        # - title: 停止
+        if state == "intro":
+            current_music = switch_music(audio_enabled, current_music, "intro", INTRO_MUSIC_FILE)
+        elif state in ("play", "clear"):
+            current_music = switch_music(audio_enabled, current_music, "level", LEVEL_MUSIC_FILE)
+        else:
+            current_music = switch_music(audio_enabled, current_music, "", Path(""))
+
         # 描画
         if state == "title":
             draw_title_screen(screen, font_l, font_m)
@@ -918,7 +965,7 @@ def main():
 
         if nearest_idx is not None:
             n = npc_states[nearest_idx]["data"]
-            nearest = f"近く: {n['name']}（{n['role']}） 距離 {int(nearest_dist)}"
+            nearest = f"近く: {n['name']}（{n['role']}）"
             if nearest_dist <= TALK_DISTANCE:
                 nearest += ""
         else:
