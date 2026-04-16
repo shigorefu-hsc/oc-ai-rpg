@@ -92,6 +92,7 @@ WATASHI_JSON_FILE = Path("watashi.json")
 STORY_JSON_FILE = Path("story.json")
 INTRO_MUSIC_FILE = Path("intro.mp3")
 LEVEL_MUSIC_FILE = Path("level.mp3")
+MUMBLE_SFX_FILE = Path("mumble.wav")
 
 
 # ============================================================
@@ -823,6 +824,13 @@ def main():
     current_pages = []
     current_page_idx = 0
     current_music = ""
+    mumble_sfx = None
+
+    if audio_enabled and MUMBLE_SFX_FILE.exists():
+        try:
+            mumble_sfx = pygame.mixer.Sound(str(MUMBLE_SFX_FILE))
+        except Exception:
+            mumble_sfx = None
 
     choice_items = [
         ("ask_self", "自己紹介して"),
@@ -882,6 +890,8 @@ def main():
                                 selected_choice = 0
                                 current_pages = []
                                 current_page_idx = 0
+                                if mumble_sfx is not None:
+                                    mumble_sfx.play()
 
                     if talking and talk_phase == "choice":
                         key_to_idx = {
