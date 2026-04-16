@@ -3,19 +3,27 @@
   "role": "門番",
   "name": "門番",
   "personality": "",
-  "lines": [],
+  "color_rgb": [90, 150, 220],
+  "dialogue": {
+    "ask_self": [],
+    "ask_about_me": [],
+    "ask_anything": []
+  },
   "move_speed": 50,
-  "roam_radius": 70,
-  "_ai_tags": {
+  "roam_radius": 78,
+  "_ai_hidden": {
     "language": "ja",
-    "task": "name, personality, lines を埋める",
+    "student_visible_explanation": false,
+    "task": "name/personality/dialogue/color_rgb を埋める",
     "constraints": [
-      "lines は 3〜5 個",
+      "dialogue.ask_self は 2〜4 行",
+      "dialogue.ask_about_me は 2〜4 行",
+      "dialogue.ask_anything は 2〜4 行",
       "1行は 8〜28 文字程度",
-      "授業向けに安全な内容",
+      "color_rgb は [R,G,B] の整数(0〜255)",
       "JSON以外を出力しない",
       "キーを削除しない"
     ],
-    "tone_hint": "世界観はファンタジーRPGの町"
+    "world_tone": "ファンタジーRPGの町"
   }
 }

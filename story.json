@@ -7,13 +7,13 @@
     "きみは見習い冒険者として、町の人と話しながら手がかりを探す。",
     "まずは町にいる全員と会話して、物語を動かそう。"
   ],
-  "_ai_tags": {
+  "_ai_hidden": {
     "language": "ja",
+    "student_visible_explanation": false,
     "task": "chapter_title と intro_lines を作る",
     "constraints": [
       "intro_lines は 3〜5 行",
-      "中高生向けに分かりやすい日本語",
-      "暴力/差別/過激表現を避ける",
+      "中高生向けの安全な内容",
       "JSON以外を出力しない",
       "キーを削除しない"
     ]

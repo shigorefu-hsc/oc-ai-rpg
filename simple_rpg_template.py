@@ -1,13 +1,13 @@
 """
-授業用: AI連携しやすい超シンプルRPG（1ファイル）
+授業用: AI連携RPGテンプレート（1ファイル）
 
-このテンプレートの狙い:
-- NPCはJSONで管理（10人分）
-- 生徒はJSONをChatGPTに渡して性格・セリフを作る
-- ゲーム内で I キーを押して一括インポート
-- 会話して全員と話すとクリア
-
-日本語UI / シンプル2D / 見下ろし型 / pygame
+v2 コンセプト
+- NPCは10人、JSONで編集
+- NPCは歩く（生きている感じ）
+- 会話は3択質問
+- 色はJSONのRGBで変更可能
+- 物語は story.json
+- 主人公は watashi.json
 """
 
 import json
@@ -20,21 +20,20 @@ import pygame
 
 
 # ============================================================
-# 【ここを編集】ゲーム基本設定
+# 【ここを編集】画面とゲーム基本設定
 # ============================================================
 SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 800
+SCREEN_HEIGHT = 820
 FPS = 60
 
-TOP_PANEL_HEIGHT = 170
-BOTTOM_PANEL_HEIGHT = 250
-MAP_MARGIN = 16
+TOP_PANEL_HEIGHT = 120
+BOTTOM_PANEL_HEIGHT = 300  # 前より大きく
+MAP_MARGIN = 14
 
 PLAYER_SIZE = 34
-PLAYER_SPEED = 220.0  # px / sec
-TALK_DISTANCE = 85
+PLAYER_SPEED = 220.0
+TALK_DISTANCE = 88
 
-# マップ描画領域（ここにプレイヤー/NPCが居る）
 MAP_RECT = pygame.Rect(
     MAP_MARGIN,
     TOP_PANEL_HEIGHT + MAP_MARGIN,
@@ -43,41 +42,39 @@ MAP_RECT = pygame.Rect(
 )
 
 # 色
-COLOR_BG = (28, 33, 41)
-COLOR_TOP_PANEL = (240, 244, 250)
-COLOR_MAP_GRASS = (121, 182, 117)
-COLOR_MAP_ROAD = (183, 166, 120)
-COLOR_MAP_WATER = (98, 160, 210)
-COLOR_PANEL_BORDER = (30, 36, 48)
-COLOR_TEXT = (22, 28, 38)
-COLOR_PLAYER = (65, 135, 255)
-COLOR_PLAYER_BORDER = (15, 35, 90)
-COLOR_NPC = (255, 172, 86)
-COLOR_NPC_TALKED = (125, 205, 132)
-COLOR_DIALOG_BG = (252, 252, 248)
-COLOR_ACCENT = (75, 103, 224)
-COLOR_WARNING = (190, 70, 60)
+COLOR_BG = (24, 30, 40)
+COLOR_TOP_PANEL = (242, 246, 252)
+COLOR_MAP_GRASS = (118, 178, 110)
+COLOR_MAP_ROAD = (186, 168, 125)
+COLOR_MAP_WATER = (95, 158, 214)
+COLOR_MAP_TREE = (70, 132, 72)
+COLOR_PANEL_BORDER = (26, 32, 44)
+COLOR_TEXT = (22, 28, 36)
+COLOR_PLAYER = (66, 132, 255)
+COLOR_PLAYER_BORDER = (18, 35, 88)
+COLOR_DIALOG_BG = (251, 251, 246)
+COLOR_ACCENT = (70, 100, 220)
+COLOR_CHOICE_BG = (234, 239, 249)
+COLOR_CHOICE_BG_ACTIVE = (207, 220, 247)
+COLOR_DONE_MARK = (120, 205, 130)
 
 
 # ============================================================
-# 【ここを編集】NPC初期配置（10人）
+# 【ここを編集】NPC初期位置（10人）
 # ============================================================
-# 授業では通常、JSON側を編集する。
-# ここは「位置」や「初期配置」を調整したいときに編集。
 BASE_NPCS = [
-    {"id": "seller", "role": "商人", "x": 220, "y": 300},
-    {"id": "blacksmith", "role": "鍛冶屋", "x": 360, "y": 240},
-    {"id": "guard", "role": "門番", "x": 520, "y": 280},
-    {"id": "healer", "role": "治療師", "x": 700, "y": 360},
-    {"id": "scholar", "role": "学者", "x": 860, "y": 270},
-    {"id": "child", "role": "子ども", "x": 980, "y": 430},
-    {"id": "farmer", "role": "農家", "x": 300, "y": 470},
-    {"id": "traveler", "role": "旅人", "x": 490, "y": 430},
-    {"id": "bard", "role": "吟遊詩人", "x": 760, "y": 470},
-    {"id": "mystic", "role": "占い師", "x": 1020, "y": 260},
+    {"id": "seller", "role": "商人", "x": 210, "y": 275},
+    {"id": "blacksmith", "role": "鍛冶屋", "x": 355, "y": 240},
+    {"id": "guard", "role": "門番", "x": 520, "y": 290},
+    {"id": "healer", "role": "治療師", "x": 700, "y": 355},
+    {"id": "scholar", "role": "学者", "x": 865, "y": 260},
+    {"id": "child", "role": "子ども", "x": 990, "y": 430},
+    {"id": "farmer", "role": "農家", "x": 295, "y": 470},
+    {"id": "traveler", "role": "旅人", "x": 485, "y": 435},
+    {"id": "bard", "role": "吟遊詩人", "x": 760, "y": 475},
+    {"id": "mystic", "role": "占い師", "x": 1030, "y": 250},
 ]
 
-# JSONファイル名（プロジェクト直下）
 NPC_JSON_FILES = {
     "seller": Path("npc_seller.json"),
     "blacksmith": Path("npc_blacksmith.json"),
@@ -96,57 +93,55 @@ STORY_JSON_FILE = Path("story.json")
 
 
 # ============================================================
-# マップオブジェクト（簡易RPG環境）
+# RPGっぽい背景（壁なし）
 # ============================================================
-# 衝突判定用の障害物（家・池・柵など）
-OBSTACLES = [
-    pygame.Rect(MAP_RECT.x + 70, MAP_RECT.y + 50, 160, 120),
-    pygame.Rect(MAP_RECT.x + 960, MAP_RECT.y + 50, 190, 130),
-    pygame.Rect(MAP_RECT.x + 420, MAP_RECT.y + 370, 230, 110),
-    pygame.Rect(MAP_RECT.x + 760, MAP_RECT.y + 170, 150, 90),
-    pygame.Rect(MAP_RECT.x + 150, MAP_RECT.y + 300, 120, 80),
-]
+# 壁は使わない（ユーザー要望）
+OBSTACLES: list[pygame.Rect] = []
 
-# 道（見た目だけ）
 ROADS = [
-    pygame.Rect(MAP_RECT.x + 0, MAP_RECT.y + 245, MAP_RECT.width, 70),
-    pygame.Rect(MAP_RECT.x + 555, MAP_RECT.y + 0, 80, MAP_RECT.height),
+    pygame.Rect(MAP_RECT.x + 0, MAP_RECT.y + 235, MAP_RECT.width, 78),
+    pygame.Rect(MAP_RECT.x + 560, MAP_RECT.y + 0, 86, MAP_RECT.height),
+]
+
+TREE_POINTS = [
+    (MAP_RECT.x + 80, MAP_RECT.y + 85),
+    (MAP_RECT.x + 140, MAP_RECT.y + 150),
+    (MAP_RECT.x + 1120, MAP_RECT.y + 85),
+    (MAP_RECT.x + 1060, MAP_RECT.y + 155),
+    (MAP_RECT.x + 1160, MAP_RECT.y + 440),
+    (MAP_RECT.x + 95, MAP_RECT.y + 420),
 ]
 
 
 # ============================================================
-# 文字描画ユーティリティ
+# テキスト描画ユーティリティ
 # ============================================================
 def get_font(size: int) -> pygame.font.Font:
-    """日本語を表示しやすいフォントを優先して返す。"""
     candidates = ["msgothic", "yugothic", "meiryo", "hiraginosans", "arialunicode", "arial"]
     available = {name.lower() for name in pygame.font.get_fonts()}
-
     for name in candidates:
         if name.lower() in available:
             return pygame.font.SysFont(name, size)
-
     return pygame.font.SysFont(None, size)
 
 
 def wrap_text_to_lines(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
-    """指定幅で自動改行した行リストを返す。"""
     if not text:
         return [""]
 
-    lines = []
-    for paragraph in str(text).split("\n"):
-        current = ""
-        for ch in paragraph:
-            test = current + ch
+    out = []
+    for para in str(text).split("\n"):
+        cur = ""
+        for ch in para:
+            test = cur + ch
             if font.size(test)[0] <= max_width:
-                current = test
+                cur = test
             else:
-                if current:
-                    lines.append(current)
-                current = ch
-        lines.append(current)
-    return lines
+                if cur:
+                    out.append(cur)
+                cur = ch
+        out.append(cur)
+    return out
 
 
 def draw_text_block(
@@ -155,10 +150,9 @@ def draw_text_block(
     font: pygame.font.Font,
     color: tuple[int, int, int],
     rect: pygame.Rect,
-    line_spacing: int = 6,
+    line_spacing: int = 4,
     max_lines: int | None = None,
-) -> int:
-    """矩形内にテキストを描画し、描画した高さ(px)を返す。"""
+):
     lines = wrap_text_to_lines(text, font, rect.width)
     if max_lines is not None:
         lines = lines[:max_lines]
@@ -170,42 +164,47 @@ def draw_text_block(
         surface.blit(img, (rect.x, y))
         y += line_h
 
-    return y - rect.y
-
 
 # ============================================================
-# JSONテンプレート生成
+# JSONテンプレート（新フォーマット）
 # ============================================================
-def make_npc_template(npc_id: str, role: str) -> dict:
+def make_npc_template(npc_id: str, role: str, color_rgb: list[int]) -> dict:
     """
-    生徒向けNPC JSONテンプレート。
-    _ai_* はゲーム内で表示しない「AI向け隠しヒント」。
+    NPC JSON新フォーマット。
+    _ai_hidden は授業補助の隠しメタ。ゲーム内表示には使わない。
     """
     return {
         "id": npc_id,
         "role": role,
         "name": role,
         "personality": "",
-        "lines": [],
+        "color_rgb": color_rgb,
+        "dialogue": {
+            "ask_self": [],
+            "ask_about_me": [],
+            "ask_anything": [],
+        },
         "move_speed": 60,
-        "roam_radius": 90,
-        "_ai_tags": {
+        "roam_radius": 95,
+        "_ai_hidden": {
             "language": "ja",
-            "task": "name, personality, lines を埋める",
+            "student_visible_explanation": False,
+            "task": "name/personality/dialogue/color_rgb を埋める",
             "constraints": [
-                "lines は 3〜5 個",
+                "dialogue.ask_self は 2〜4 行",
+                "dialogue.ask_about_me は 2〜4 行",
+                "dialogue.ask_anything は 2〜4 行",
                 "1行は 8〜28 文字程度",
-                "授業向けに安全な内容",
+                "color_rgb は [R,G,B] の整数(0〜255)",
                 "JSON以外を出力しない",
                 "キーを削除しない",
             ],
-            "tone_hint": "世界観はファンタジーRPGの町",
+            "world_tone": "ファンタジーRPGの町",
         },
     }
 
 
 def make_watashi_template() -> dict:
-    """プレイヤー（自分）用JSONテンプレート。"""
     return {
         "id": "watashi",
         "name": "ワタシ",
@@ -213,12 +212,13 @@ def make_watashi_template() -> dict:
         "personality": "まじめ",
         "origin": "港町ミナト",
         "goal": "星の地図の欠片を集める",
-        "_ai_tags": {
+        "color_rgb": [66, 132, 255],
+        "_ai_hidden": {
             "language": "ja",
+            "student_visible_explanation": False,
             "task": "主人公設定を具体化する",
             "constraints": [
                 "中高生向けに分かりやすい日本語",
-                "暴力/差別/過激表現を避ける",
                 "JSON以外を出力しない",
                 "キーを削除しない",
             ],
@@ -227,7 +227,6 @@ def make_watashi_template() -> dict:
 
 
 def make_story_template() -> dict:
-    """ワールドストーリー用JSONテンプレート。"""
     return {
         "id": "story",
         "world_name": "ルーメン王国",
@@ -237,13 +236,13 @@ def make_story_template() -> dict:
             "きみは見習い冒険者として、町の人と話しながら手がかりを探す。",
             "まずは町にいる全員と会話して、物語を動かそう。",
         ],
-        "_ai_tags": {
+        "_ai_hidden": {
             "language": "ja",
+            "student_visible_explanation": False,
             "task": "chapter_title と intro_lines を作る",
             "constraints": [
                 "intro_lines は 3〜5 行",
-                "中高生向けに分かりやすい日本語",
-                "暴力/差別/過激表現を避ける",
+                "中高生向けの安全な内容",
                 "JSON以外を出力しない",
                 "キーを削除しない",
             ],
@@ -252,48 +251,65 @@ def make_story_template() -> dict:
 
 
 def ensure_json_templates_exist():
-    """JSONファイルが無ければ自動生成（既存ファイルは上書きしない）。"""
-    role_by_id = {npc["id"]: npc["role"] for npc in BASE_NPCS}
+    role_by_id = {n["id"]: n["role"] for n in BASE_NPCS}
+    default_colors = {
+        "seller": [255, 170, 80],
+        "blacksmith": [199, 127, 77],
+        "guard": [90, 150, 220],
+        "healer": [120, 205, 160],
+        "scholar": [185, 145, 225],
+        "child": [255, 205, 95],
+        "farmer": [170, 190, 85],
+        "traveler": [130, 165, 230],
+        "bard": [235, 130, 190],
+        "mystic": [140, 130, 210],
+    }
 
-    for npc_id, file_path in NPC_JSON_FILES.items():
-        if file_path.exists():
+    for npc_id, path in NPC_JSON_FILES.items():
+        if path.exists():
             continue
-        template = make_npc_template(npc_id, role_by_id.get(npc_id, "村人"))
-        file_path.write_text(json.dumps(template, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(make_npc_template(npc_id, role_by_id[npc_id], default_colors[npc_id]), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     if not WATASHI_JSON_FILE.exists():
-        WATASHI_JSON_FILE.write_text(
-            json.dumps(make_watashi_template(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        WATASHI_JSON_FILE.write_text(json.dumps(make_watashi_template(), ensure_ascii=False, indent=2), encoding="utf-8")
+
     if not STORY_JSON_FILE.exists():
-        STORY_JSON_FILE.write_text(
-            json.dumps(make_story_template(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        STORY_JSON_FILE.write_text(json.dumps(make_story_template(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ============================================================
 # JSON読み込み
 # ============================================================
-def load_json_file(path: Path):
-    text = path.read_text(encoding="utf-8")
-    return json.loads(text)
+def load_json(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def clean_lines(lines_obj) -> list[str]:
-    if not isinstance(lines_obj, list):
+def clean_lines(obj) -> list[str]:
+    if not isinstance(obj, list):
         return []
-    lines = []
-    for item in lines_obj:
-        s = str(item).strip()
+    out = []
+    for x in obj:
+        s = str(x).strip()
         if s:
-            lines.append(s)
-    return lines
+            out.append(s)
+    return out
 
 
-def apply_npc_data_from_json(npc_data: dict, payload: dict):
-    """NPC1人分のJSONデータをゲーム内データへ反映。"""
+def parse_rgb(obj, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    if not isinstance(obj, list) or len(obj) != 3:
+        return fallback
+    vals = []
+    for v in obj:
+        if not isinstance(v, (int, float)):
+            return fallback
+        vals.append(max(0, min(255, int(v))))
+    return (vals[0], vals[1], vals[2])
+
+
+def apply_npc_payload(npc_data: dict, payload: dict):
     if isinstance(payload.get("name"), str) and payload["name"].strip():
         npc_data["name"] = payload["name"].strip()
 
@@ -303,401 +319,343 @@ def apply_npc_data_from_json(npc_data: dict, payload: dict):
     if isinstance(payload.get("personality"), str):
         npc_data["personality"] = payload["personality"].strip()
 
-    npc_data["lines"] = clean_lines(payload.get("lines", []))
+    npc_data["color_rgb"] = parse_rgb(payload.get("color_rgb"), npc_data["color_rgb"])
 
-    # 動きもJSONで調整可能
-    move_speed = payload.get("move_speed")
-    roam_radius = payload.get("roam_radius")
+    dialogue = payload.get("dialogue", {})
+    if isinstance(dialogue, dict):
+        npc_data["dialogue"]["ask_self"] = clean_lines(dialogue.get("ask_self", []))
+        npc_data["dialogue"]["ask_about_me"] = clean_lines(dialogue.get("ask_about_me", []))
+        npc_data["dialogue"]["ask_anything"] = clean_lines(dialogue.get("ask_anything", []))
 
-    if isinstance(move_speed, (int, float)):
-        npc_data["move_speed"] = max(20.0, min(float(move_speed), 140.0))
+    ms = payload.get("move_speed")
+    rr = payload.get("roam_radius")
 
-    if isinstance(roam_radius, (int, float)):
-        npc_data["roam_radius"] = max(20.0, min(float(roam_radius), 180.0))
+    if isinstance(ms, (int, float)):
+        npc_data["move_speed"] = max(20.0, min(float(ms), 150.0))
+    if isinstance(rr, (int, float)):
+        npc_data["roam_radius"] = max(20.0, min(float(rr), 200.0))
 
 
 def load_all_json(npc_states: list[dict], watashi: dict, story: dict) -> str:
-    """
-    10個のNPC JSON + watashi.json を読み込む。
-    1つでも不正があればエラーメッセージを返す。
-    """
-    by_id = {item["data"]["id"]: item for item in npc_states}
+    by_id = {s["data"]["id"]: s for s in npc_states}
 
-    loaded_npcs = 0
-    for npc_id, file_path in NPC_JSON_FILES.items():
-        if not file_path.exists():
-            return f"エラー: {file_path.name} が見つかりません"
-
+    count = 0
+    for npc_id, path in NPC_JSON_FILES.items():
+        if not path.exists():
+            return f"エラー: {path.name} が見つかりません"
         try:
-            payload = load_json_file(file_path)
-        except json.JSONDecodeError as e:
-            return f"JSONエラー: {file_path.name} ({e})"
+            payload = load_json(path)
         except Exception as e:
-            return f"読み込みエラー: {file_path.name} ({e})"
+            return f"エラー: {path.name} ({e})"
 
         if not isinstance(payload, dict):
-            return f"形式エラー: {file_path.name} はオブジェクト形式にしてください"
+            return f"形式エラー: {path.name} はJSONオブジェクトにしてください"
 
         if payload.get("id") != npc_id:
-            return f"IDエラー: {file_path.name} の id は '{npc_id}' にしてください"
+            return f"IDエラー: {path.name} の id は '{npc_id}'"
 
-        state = by_id[npc_id]
-        apply_npc_data_from_json(state["data"], payload)
-        loaded_npcs += 1
+        apply_npc_payload(by_id[npc_id]["data"], payload)
+        count += 1
 
-    # watashi.json
     if not WATASHI_JSON_FILE.exists():
         return "エラー: watashi.json が見つかりません"
-
     try:
-        payload = load_json_file(WATASHI_JSON_FILE)
-    except json.JSONDecodeError as e:
-        return f"JSONエラー: {WATASHI_JSON_FILE.name} ({e})"
+        payload = load_json(WATASHI_JSON_FILE)
     except Exception as e:
-        return f"読み込みエラー: {WATASHI_JSON_FILE.name} ({e})"
+        return f"エラー: watashi.json ({e})"
 
-    if not isinstance(payload, dict):
-        return "形式エラー: watashi.json はオブジェクト形式にしてください"
+    if not isinstance(payload, dict) or payload.get("id") != "watashi":
+        return "ID/形式エラー: watashi.json"
 
-    if payload.get("id") != "watashi":
-        return "IDエラー: watashi.json の id は 'watashi' にしてください"
-
-    # ゲームで使う公開キーだけ反映（_ai_* は読み捨て）
     for key in ["name", "title", "personality", "origin", "goal"]:
         if isinstance(payload.get(key), str):
             watashi[key] = payload[key].strip() or watashi[key]
 
-    # story.json
+    watashi["color_rgb"] = parse_rgb(payload.get("color_rgb"), watashi["color_rgb"])
+
     if not STORY_JSON_FILE.exists():
         return "エラー: story.json が見つかりません"
-
     try:
-        payload = load_json_file(STORY_JSON_FILE)
-    except json.JSONDecodeError as e:
-        return f"JSONエラー: {STORY_JSON_FILE.name} ({e})"
+        payload = load_json(STORY_JSON_FILE)
     except Exception as e:
-        return f"読み込みエラー: {STORY_JSON_FILE.name} ({e})"
+        return f"エラー: story.json ({e})"
 
-    if not isinstance(payload, dict):
-        return "形式エラー: story.json はオブジェクト形式にしてください"
-
-    if payload.get("id") != "story":
-        return "IDエラー: story.json の id は 'story' にしてください"
+    if not isinstance(payload, dict) or payload.get("id") != "story":
+        return "ID/形式エラー: story.json"
 
     for key in ["world_name", "chapter_title"]:
         if isinstance(payload.get(key), str):
             story[key] = payload[key].strip() or story[key]
 
-    intro_lines = clean_lines(payload.get("intro_lines", []))
-    if intro_lines:
-        story["intro_lines"] = intro_lines
+    intro = clean_lines(payload.get("intro_lines", []))
+    if intro:
+        story["intro_lines"] = intro
 
-    return f"インポート成功: NPC {loaded_npcs}/10 + watashi.json + story.json"
+    return f"ロード完了: NPC {count}/10"
 
 
 # ============================================================
-# 移動と衝突
+# 移動
 # ============================================================
-def move_rect_with_collisions(
-    rect: pygame.Rect,
-    dx: float,
-    dy: float,
-    blocks: list[pygame.Rect],
-    bounds: pygame.Rect,
-):
-    """プレイヤー向け: 軸ごとに移動して衝突を解決。"""
-    # X軸
+def move_with_bounds(rect: pygame.Rect, dx: float, dy: float, bounds: pygame.Rect):
     rect.x += int(dx)
+    rect.y += int(dy)
+
     if rect.left < bounds.left:
         rect.left = bounds.left
     if rect.right > bounds.right:
         rect.right = bounds.right
-
-    for block in blocks:
-        if rect.colliderect(block):
-            if dx > 0:
-                rect.right = block.left
-            elif dx < 0:
-                rect.left = block.right
-
-    # Y軸
-    rect.y += int(dy)
     if rect.top < bounds.top:
         rect.top = bounds.top
     if rect.bottom > bounds.bottom:
         rect.bottom = bounds.bottom
 
-    for block in blocks:
-        if rect.colliderect(block):
-            if dy > 0:
-                rect.bottom = block.top
-            elif dy < 0:
-                rect.top = block.bottom
-
 
 def update_npc_movement(npc_states: list[dict], dt: float, freeze: bool):
-    """NPCのランダム歩行（生きている感じを出す）。"""
     if freeze:
         return
 
-    for npc_state in npc_states:
-        data = npc_state["data"]
-        rect = npc_state["rect"]
+    for s in npc_states:
+        d = s["data"]
+        r = s["rect"]
+        s["decision_timer"] -= dt
 
-        npc_state["decision_timer"] -= dt
-
-        if npc_state["decision_timer"] <= 0:
-            # 一定周期で「止まる or 歩く」を再決定
-            if random.random() < 0.28:
-                npc_state["vx"] = 0.0
-                npc_state["vy"] = 0.0
-                npc_state["decision_timer"] = random.uniform(0.7, 1.8)
+        if s["decision_timer"] <= 0:
+            if random.random() < 0.30:
+                s["vx"] = 0.0
+                s["vy"] = 0.0
+                s["decision_timer"] = random.uniform(0.7, 1.6)
             else:
-                angle = random.uniform(0.0, math.tau)
-                speed = float(data.get("move_speed", 60.0))
-                npc_state["vx"] = math.cos(angle) * speed
-                npc_state["vy"] = math.sin(angle) * speed
-                npc_state["decision_timer"] = random.uniform(0.9, 2.4)
+                ang = random.uniform(0.0, math.tau)
+                sp = float(d.get("move_speed", 60.0))
+                s["vx"] = math.cos(ang) * sp
+                s["vy"] = math.sin(ang) * sp
+                s["decision_timer"] = random.uniform(0.8, 2.1)
 
-        fx = npc_state["fx"] + npc_state["vx"] * dt
-        fy = npc_state["fy"] + npc_state["vy"] * dt
+        fx = s["fx"] + s["vx"] * dt
+        fy = s["fy"] + s["vy"] * dt
 
-        test_rect = pygame.Rect(int(fx), int(fy), rect.width, rect.height)
+        test = pygame.Rect(int(fx), int(fy), r.width, r.height)
 
-        # 徘徊半径を超えたらホームへ戻る方向に寄せる
-        home_x = npc_state["home_x"]
-        home_y = npc_state["home_y"]
-        roam = float(data.get("roam_radius", 90.0))
-        dist_home = math.hypot(test_rect.centerx - home_x, test_rect.centery - home_y)
+        home_x = s["home_x"]
+        home_y = s["home_y"]
+        roam = float(d.get("roam_radius", 95.0))
+
+        dist_home = math.hypot(test.centerx - home_x, test.centery - home_y)
         if dist_home > roam:
-            vec_x = home_x - test_rect.centerx
-            vec_y = home_y - test_rect.centery
-            length = math.hypot(vec_x, vec_y) or 1.0
-            pull = float(data.get("move_speed", 60.0))
-            npc_state["vx"] = (vec_x / length) * pull
-            npc_state["vy"] = (vec_y / length) * pull
-            fx = npc_state["fx"] + npc_state["vx"] * dt
-            fy = npc_state["fy"] + npc_state["vy"] * dt
-            test_rect = pygame.Rect(int(fx), int(fy), rect.width, rect.height)
+            vx = home_x - test.centerx
+            vy = home_y - test.centery
+            ln = math.hypot(vx, vy) or 1.0
+            sp = float(d.get("move_speed", 60.0))
+            s["vx"] = (vx / ln) * sp
+            s["vy"] = (vy / ln) * sp
+            fx = s["fx"] + s["vx"] * dt
+            fy = s["fy"] + s["vy"] * dt
+            test = pygame.Rect(int(fx), int(fy), r.width, r.height)
 
-        # 壁/障害物に当たったら方向を変える
-        hit = False
-        if not MAP_RECT.contains(test_rect):
-            hit = True
+        if not MAP_RECT.contains(test):
+            s["vx"] *= -0.7
+            s["vy"] *= -0.7
+            s["decision_timer"] = random.uniform(0.15, 0.6)
         else:
-            for block in OBSTACLES:
-                if test_rect.colliderect(block):
-                    hit = True
-                    break
-
-        if hit:
-            npc_state["vx"] *= -0.7
-            npc_state["vy"] *= -0.7
-            npc_state["decision_timer"] = random.uniform(0.2, 0.8)
-        else:
-            npc_state["fx"] = fx
-            npc_state["fy"] = fy
-            rect.x = int(npc_state["fx"])
-            rect.y = int(npc_state["fy"])
+            s["fx"] = fx
+            s["fy"] = fy
+            r.x = int(s["fx"])
+            r.y = int(s["fy"])
 
 
 def find_nearest_npc(player_rect: pygame.Rect, npc_states: list[dict]):
-    nearest = None
-    nearest_dist = 999999.0
-
+    idx = None
+    best = 999999.0
     px, py = player_rect.center
-    for i, npc_state in enumerate(npc_states):
-        nx, ny = npc_state["rect"].center
+    for i, s in enumerate(npc_states):
+        nx, ny = s["rect"].center
         dist = math.hypot(px - nx, py - ny)
-        if dist < nearest_dist:
-            nearest_dist = dist
-            nearest = i
-
-    return nearest, nearest_dist
+        if dist < best:
+            best = dist
+            idx = i
+    return idx, best
 
 
 # ============================================================
-# ゲーム画面描画
+# 描画
 # ============================================================
-def draw_top_panel(
-    screen: pygame.Surface,
-    font_s: pygame.font.Font,
-    font_m: pygame.font.Font,
-    mission_text: str,
-    status_text: str,
-    nearest_text: str,
-):
+def draw_top_panel(screen, font_m, font_s, mission_text, nearest_text, status_text):
     panel = pygame.Rect(0, 0, SCREEN_WIDTH, TOP_PANEL_HEIGHT)
     pygame.draw.rect(screen, COLOR_TOP_PANEL, panel)
     pygame.draw.line(screen, COLOR_PANEL_BORDER, (0, panel.bottom - 1), (SCREEN_WIDTH, panel.bottom - 1), 2)
 
-    title = "AI RPG テンプレート: 町の10人と会話しよう"
-    title_img = font_m.render(title, True, COLOR_TEXT)
-    screen.blit(title_img, (22, 14))
+    t = "AI RPG: 町の10人と会話しよう"
+    img = font_m.render(t, True, COLOR_TEXT)
+    screen.blit(img, (20, 12))
 
-    draw_text_block(screen, mission_text, font_s, COLOR_TEXT, pygame.Rect(22, 60, SCREEN_WIDTH - 44, 26), line_spacing=2, max_lines=1)
-    draw_text_block(screen, nearest_text, font_s, COLOR_TEXT, pygame.Rect(22, 92, SCREEN_WIDTH - 44, 26), line_spacing=2, max_lines=1)
+    draw_text_block(screen, mission_text, font_s, COLOR_TEXT, pygame.Rect(22, 50, SCREEN_WIDTH - 44, 28), max_lines=1)
+    draw_text_block(screen, nearest_text, font_s, COLOR_TEXT, pygame.Rect(22, 78, SCREEN_WIDTH - 44, 26), max_lines=1)
 
-    # ステータスは右上の独立ボックスにして重なりを防ぐ
-    status_box = pygame.Rect(SCREEN_WIDTH - 430, 14, 410, 52)
-    pygame.draw.rect(screen, (255, 255, 255), status_box)
-    pygame.draw.rect(screen, COLOR_PANEL_BORDER, status_box, 1)
-    draw_text_block(screen, status_text, font_s, COLOR_ACCENT, status_box.inflate(-12, -10), line_spacing=2, max_lines=2)
+    # JSON案内は上部から消し、短い状態だけ右上へ
+    sbox = pygame.Rect(SCREEN_WIDTH - 290, 12, 270, 34)
+    pygame.draw.rect(screen, (255, 255, 255), sbox)
+    pygame.draw.rect(screen, COLOR_PANEL_BORDER, sbox, 1)
+    draw_text_block(screen, status_text, font_s, COLOR_ACCENT, sbox.inflate(-10, -6), max_lines=1)
 
 
-def draw_map_background(screen: pygame.Surface):
-    # マップ地面
+def draw_map(screen):
     pygame.draw.rect(screen, COLOR_MAP_GRASS, MAP_RECT)
 
-    # 道
     for road in ROADS:
         pygame.draw.rect(screen, COLOR_MAP_ROAD, road)
 
-    # 水辺
-    water = pygame.Rect(MAP_RECT.x + 845, MAP_RECT.y + 325, 260, 140)
+    water = pygame.Rect(MAP_RECT.x + 850, MAP_RECT.y + 330, 250, 130)
     pygame.draw.ellipse(screen, COLOR_MAP_WATER, water)
+    pygame.draw.ellipse(screen, COLOR_PANEL_BORDER, water, 2)
 
-    # 障害物を建物/柵っぽく描画
-    for i, block in enumerate(OBSTACLES):
-        base = (160, 120, 88) if i % 2 == 0 else (142, 108, 80)
-        pygame.draw.rect(screen, base, block)
-        pygame.draw.rect(screen, COLOR_PANEL_BORDER, block, 2)
+    for x, y in TREE_POINTS:
+        pygame.draw.circle(screen, COLOR_MAP_TREE, (x, y), 22)
+        pygame.draw.circle(screen, COLOR_PANEL_BORDER, (x, y), 22, 2)
 
-    # 枠線
     pygame.draw.rect(screen, COLOR_PANEL_BORDER, MAP_RECT, 2)
 
 
-def draw_npcs(screen: pygame.Surface, npc_states: list[dict], nearest_index: int | None):
-    for i, npc_state in enumerate(npc_states):
-        rect = npc_state["rect"]
-        data = npc_state["data"]
-        color = COLOR_NPC_TALKED if data.get("talked", False) else COLOR_NPC
+def draw_npcs(screen, npc_states, nearest_idx, font_name):
+    for i, s in enumerate(npc_states):
+        r = s["rect"]
+        d = s["data"]
+        col = d["color_rgb"]
 
-        pygame.draw.rect(screen, color, rect, border_radius=6)
-        pygame.draw.rect(screen, COLOR_PANEL_BORDER, rect, 2, border_radius=6)
+        pygame.draw.rect(screen, col, r, border_radius=7)
+        pygame.draw.rect(screen, COLOR_PANEL_BORDER, r, 2, border_radius=7)
 
-        # 一番近いNPCだけ頭上に小さなガイドを出す（文字重なり防止）
-        if nearest_index == i:
-            bubble = pygame.Rect(rect.centerx - 20, rect.y - 24, 40, 18)
-            pygame.draw.rect(screen, (255, 255, 255), bubble, border_radius=8)
-            pygame.draw.rect(screen, COLOR_PANEL_BORDER, bubble, 1, border_radius=8)
-            mark = "Talk" if not data.get("talked") else "Done"
-            font = pygame.font.SysFont(None, 16)
-            img = font.render(mark, True, COLOR_TEXT)
+        if d.get("talked"):
+            pygame.draw.circle(screen, COLOR_DONE_MARK, (r.right + 6, r.y + 6), 5)
+
+        # 近いNPCは「Talk」ではなく名前表示
+        if nearest_idx == i:
+            name = d["name"]
+            w = max(56, min(170, font_name.size(name)[0] + 16))
+            bubble = pygame.Rect(r.centerx - w // 2, r.y - 25, w, 20)
+            pygame.draw.rect(screen, (255, 255, 255), bubble, border_radius=9)
+            pygame.draw.rect(screen, COLOR_PANEL_BORDER, bubble, 1, border_radius=9)
+            img = font_name.render(name, True, COLOR_TEXT)
             screen.blit(img, (bubble.centerx - img.get_width() // 2, bubble.y + 2))
 
 
-def draw_player(screen: pygame.Surface, player_rect: pygame.Rect):
-    pygame.draw.rect(screen, COLOR_PLAYER, player_rect, border_radius=6)
-    pygame.draw.rect(screen, COLOR_PLAYER_BORDER, player_rect, 2, border_radius=6)
+def draw_player(screen, rect, color_rgb):
+    pygame.draw.rect(screen, color_rgb, rect, border_radius=7)
+    pygame.draw.rect(screen, COLOR_PLAYER_BORDER, rect, 2, border_radius=7)
 
 
 def draw_dialog_panel(
-    screen: pygame.Surface,
-    font_s: pygame.font.Font,
-    font_m: pygame.font.Font,
-    npc_data: dict,
-    line: str,
-    line_index: int,
-    total_lines: int,
+    screen,
+    font_title,
+    font_body,
+    font_small,
+    npc_data,
+    phase,
+    line,
+    line_idx,
+    line_total,
+    selected_choice,
 ):
     panel = pygame.Rect(0, SCREEN_HEIGHT - BOTTOM_PANEL_HEIGHT, SCREEN_WIDTH, BOTTOM_PANEL_HEIGHT)
     pygame.draw.rect(screen, COLOR_DIALOG_BG, panel)
     pygame.draw.line(screen, COLOR_PANEL_BORDER, (0, panel.y), (SCREEN_WIDTH, panel.y), 2)
 
-    title = f"{npc_data['name']}  /  役割: {npc_data['role']}  /  性格: {npc_data.get('personality') or '未設定'}"
-    draw_text_block(screen, title, font_m, COLOR_TEXT, pygame.Rect(22, panel.y + 16, SCREEN_WIDTH - 44, 30), line_spacing=2, max_lines=1)
+    title = f"{npc_data['name']} / 役割: {npc_data['role']} / 性格: {npc_data.get('personality') or '未設定'}"
+    draw_text_block(screen, title, font_title, COLOR_TEXT, pygame.Rect(20, panel.y + 14, SCREEN_WIDTH - 40, 30), max_lines=1)
 
-    body_rect = pygame.Rect(22, panel.y + 58, SCREEN_WIDTH - 44, 120)
-    draw_text_block(screen, line, font_m, COLOR_TEXT, body_rect, line_spacing=8, max_lines=4)
+    if phase == "choice":
+        q1 = "1. 自己紹介して"
+        q2 = "2. わたしのことどう思う？"
+        q3 = "3. 何か話して"
+        qs = [q1, q2, q3]
 
-    page = f"{line_index + 1}/{max(total_lines, 1)}"
-    hint = "SPACE: 次のセリフ"
-    page_img = font_s.render(page, True, COLOR_TEXT)
-    hint_img = font_s.render(hint, True, COLOR_TEXT)
-    screen.blit(page_img, (22, panel.bottom - 34))
-    screen.blit(hint_img, (SCREEN_WIDTH - hint_img.get_width() - 22, panel.bottom - 34))
+        for i, q in enumerate(qs):
+            y = panel.y + 62 + i * 64
+            box = pygame.Rect(24, y, SCREEN_WIDTH - 48, 52)
+            bg = COLOR_CHOICE_BG_ACTIVE if selected_choice == i else COLOR_CHOICE_BG
+            pygame.draw.rect(screen, bg, box, border_radius=8)
+            pygame.draw.rect(screen, COLOR_PANEL_BORDER, box, 1, border_radius=8)
+            draw_text_block(screen, q, font_body, COLOR_TEXT, box.inflate(-14, -11), max_lines=1)
+
+        hint = "1/2/3: 選択   SPACE: 会話を終える"
+        h_img = font_small.render(hint, True, COLOR_TEXT)
+        screen.blit(h_img, (SCREEN_WIDTH - h_img.get_width() - 20, panel.bottom - 32))
+    else:
+        # 文字を小さめにして、下欄は広く
+        body_rect = pygame.Rect(22, panel.y + 58, SCREEN_WIDTH - 44, 176)
+        draw_text_block(screen, line, font_body, COLOR_TEXT, body_rect, line_spacing=7, max_lines=6)
+
+        page = f"{line_idx + 1}/{max(1, line_total)}"
+        p_img = font_small.render(page, True, COLOR_TEXT)
+        h_img = font_small.render("SPACE: 次へ", True, COLOR_TEXT)
+        screen.blit(p_img, (22, panel.bottom - 32))
+        screen.blit(h_img, (SCREEN_WIDTH - h_img.get_width() - 20, panel.bottom - 32))
 
 
-def draw_bottom_hint(screen: pygame.Surface, font_s: pygame.font.Font, text: str):
+def draw_bottom_message(screen, font_body, text):
     panel = pygame.Rect(0, SCREEN_HEIGHT - BOTTOM_PANEL_HEIGHT, SCREEN_WIDTH, BOTTOM_PANEL_HEIGHT)
     pygame.draw.rect(screen, COLOR_DIALOG_BG, panel)
     pygame.draw.line(screen, COLOR_PANEL_BORDER, (0, panel.y), (SCREEN_WIDTH, panel.y), 2)
 
-    title = "メッセージ"
-    t_img = pygame.font.SysFont(None, 34).render(title, True, COLOR_TEXT)
-    screen.blit(t_img, (22, panel.y + 22))
-
     draw_text_block(
         screen,
         text,
-        font_s,
+        font_body,
         COLOR_TEXT,
-        pygame.Rect(22, panel.y + 70, SCREEN_WIDTH - 44, 140),
-        line_spacing=8,
-        max_lines=5,
+        pygame.Rect(24, panel.y + 24, SCREEN_WIDTH - 48, BOTTOM_PANEL_HEIGHT - 50),
+        line_spacing=6,
+        max_lines=8,
     )
 
 
-def draw_title_screen(screen: pygame.Surface, font_l: pygame.font.Font, font_m: pygame.font.Font):
+def draw_title_screen(screen, font_l, font_m):
     screen.fill(COLOR_BG)
-
     box = pygame.Rect(120, 120, SCREEN_WIDTH - 240, SCREEN_HEIGHT - 240)
     pygame.draw.rect(screen, COLOR_TOP_PANEL, box, border_radius=16)
     pygame.draw.rect(screen, COLOR_PANEL_BORDER, box, 3, border_radius=16)
 
     t1 = "ルーメン王国の朝"
-    t2 = "AIでキャラを作るRPG授業テンプレート"
-    t3 = "はじまり"
+    t2 = "AIでキャラクターを育てる授業RPG"
+    t3 = "はじめる"
 
     i1 = font_l.render(t1, True, COLOR_TEXT)
     i2 = font_m.render(t2, True, COLOR_TEXT)
     i3 = font_m.render(t3, True, COLOR_ACCENT)
 
-    screen.blit(i1, (box.centerx - i1.get_width() // 2, box.y + 90))
-    screen.blit(i2, (box.centerx - i2.get_width() // 2, box.y + 190))
-    screen.blit(i3, (box.centerx - i3.get_width() // 2, box.y + 290))
+    screen.blit(i1, (box.centerx - i1.get_width() // 2, box.y + 95))
+    screen.blit(i2, (box.centerx - i2.get_width() // 2, box.y + 195))
+    screen.blit(i3, (box.centerx - i3.get_width() // 2, box.y + 295))
 
-def draw_intro_screen(
-    screen: pygame.Surface,
-    font_l: pygame.font.Font,
-    font_m: pygame.font.Font,
-    font_s: pygame.font.Font,
-    page_text: str,
-    page_index: int,
-    page_total: int,
-    watashi: dict,
-    story: dict,
-):
-    screen.fill((20, 24, 30))
 
+def draw_intro_screen(screen, font_l, font_m, font_s, page_text, page_idx, page_total, watashi, story):
+    screen.fill((20, 25, 33))
     box = pygame.Rect(90, 80, SCREEN_WIDTH - 180, SCREEN_HEIGHT - 160)
     pygame.draw.rect(screen, (244, 247, 252), box, border_radius=16)
     pygame.draw.rect(screen, COLOR_PANEL_BORDER, box, 3, border_radius=16)
 
     header = f"主人公: {watashi['name']} / {watashi['title']}"
     h_img = font_m.render(header, True, COLOR_TEXT)
-    screen.blit(h_img, (box.x + 26, box.y + 24))
+    screen.blit(h_img, (box.x + 24, box.y + 22))
 
-    sub = f"性格: {watashi['personality']}    出身: {watashi['origin']}    目的: {watashi['goal']}"
-    draw_text_block(screen, sub, font_s, COLOR_TEXT, pygame.Rect(box.x + 26, box.y + 62, box.width - 52, 30), max_lines=1)
+    sub = f"性格: {watashi['personality']}   出身: {watashi['origin']}   目的: {watashi['goal']}"
+    draw_text_block(screen, sub, font_s, COLOR_TEXT, pygame.Rect(box.x + 24, box.y + 60, box.width - 48, 28), max_lines=1)
 
     draw_text_block(
         screen,
         page_text,
         font_l,
         COLOR_TEXT,
-        pygame.Rect(box.x + 26, box.y + 120, box.width - 52, box.height - 220),
-        line_spacing=12,
+        pygame.Rect(box.x + 24, box.y + 116, box.width - 48, box.height - 230),
+        line_spacing=11,
         max_lines=8,
     )
 
     world = f"世界: {story['world_name']} / 章: {story['chapter_title']}"
-    draw_text_block(screen, world, font_s, COLOR_TEXT, pygame.Rect(box.x + 26, box.bottom - 86, box.width - 52, 28), max_lines=1)
+    draw_text_block(screen, world, font_s, COLOR_TEXT, pygame.Rect(box.x + 24, box.bottom - 86, box.width - 48, 24), max_lines=1)
 
-    footer = f"{page_index + 1}/{page_total}"
+    footer = f"{page_idx + 1}/{page_total}"
     f_img = font_m.render(footer, True, COLOR_ACCENT)
-    screen.blit(f_img, (box.right - f_img.get_width() - 26, box.bottom - 46))
+    screen.blit(f_img, (box.right - f_img.get_width() - 24, box.bottom - 46))
 
 
 # ============================================================
@@ -707,7 +665,6 @@ def main():
     pygame.init()
     pygame.display.set_caption("AI RPG Template")
 
-    # Python 3.14 + 旧pygame環境向けガード
     if not pygame.font:
         print("エラー: pygame font モジュールが使えません。")
         print("対処: pip install pygame-ce")
@@ -717,24 +674,25 @@ def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
 
-    font_s = get_font(23)
-    font_m = get_font(31)
-    font_l = get_font(44)
+    font_s = get_font(22)
+    font_m = get_font(30)
+    font_l = get_font(42)
+    font_name = get_font(16)
+    # 下部会話用は小さめ
+    font_dialog_title = get_font(27)
+    font_dialog_body = get_font(24)
 
-    # JSONテンプレートを準備
     ensure_json_templates_exist()
 
-    # プレイヤー
-    player_rect = pygame.Rect(MAP_RECT.x + 50, MAP_RECT.y + 60, PLAYER_SIZE, PLAYER_SIZE)
-
-    # watashi（主人公）初期値
     watashi = {
         "name": "ワタシ",
         "title": "見習い冒険者",
         "personality": "まじめ",
         "origin": "港町ミナト",
         "goal": "星の地図の欠片を集める",
+        "color_rgb": (66, 132, 255),
     }
+
     story = {
         "world_name": "ルーメン王国",
         "chapter_title": "朝霧のはじまり",
@@ -745,24 +703,31 @@ def main():
         ],
     }
 
-    # NPC状態を生成
+    player_rect = pygame.Rect(MAP_RECT.x + 56, MAP_RECT.y + 65, PLAYER_SIZE, PLAYER_SIZE)
+
     npc_states = []
-    for base in BASE_NPCS:
-        data = {
-            "id": base["id"],
-            "role": base["role"],
-            "name": base["role"],
+    default_color = (255, 170, 80)
+    for b in BASE_NPCS:
+        d = {
+            "id": b["id"],
+            "role": b["role"],
+            "name": b["role"],
             "personality": "",
-            "lines": [],
+            "color_rgb": default_color,
+            "dialogue": {
+                "ask_self": [],
+                "ask_about_me": [],
+                "ask_anything": [],
+            },
             "move_speed": 60.0,
-            "roam_radius": 90.0,
+            "roam_radius": 95.0,
             "talked": False,
         }
 
-        rect = pygame.Rect(base["x"], base["y"], 34, 34)
+        rect = pygame.Rect(b["x"], b["y"], 34, 34)
         npc_states.append(
             {
-                "data": data,
+                "data": d,
                 "rect": rect,
                 "home_x": rect.centerx,
                 "home_y": rect.centery,
@@ -774,93 +739,107 @@ def main():
             }
         )
 
-    # 起動時に一度JSONを読み込み
     status_message = load_all_json(npc_states, watashi, story)
 
-    # 画面状態
     state = "title"  # title -> intro -> play -> clear
-
     intro_pages = list(story.get("intro_lines", []))
-    intro_index = 0
+    intro_idx = 0
 
     talking = False
-    talking_npc_index = None
-    talking_line_index = 0
+    talking_npc_idx = None
+    talk_phase = "choice"  # choice / lines
+    selected_choice = 0
+    current_lines = []
+    current_line_idx = 0
+
+    choice_items = [
+        ("ask_self", "自己紹介して"),
+        ("ask_about_me", "わたしのことどう思う？"),
+        ("ask_anything", "何か話して"),
+    ]
 
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
 
-        nearest_index, nearest_dist = find_nearest_npc(player_rect, npc_states)
+        nearest_idx, nearest_dist = find_nearest_npc(player_rect, npc_states)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
                 running = False
 
-            if event.type == pygame.KEYDOWN:
-                # ----------------
-                # タイトル
-                # ----------------
+            if ev.type == pygame.KEYDOWN:
                 if state == "title":
-                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                        # 最新JSONで主人公ストーリーを再生成してからイントロへ
+                    if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                         status_message = load_all_json(npc_states, watashi, story)
                         intro_pages = list(story.get("intro_lines", []))
                         if not intro_pages:
-                            intro_pages = ["物語はまだ書かれていない。watashi.json の intro_lines を編集しよう。"]
-                        intro_index = 0
+                            intro_pages = ["物語が空です。story.json の intro_lines を編集してください。"]
+                        intro_idx = 0
                         state = "intro"
                     continue
 
-                # ----------------
-                # イントロ
-                # ----------------
                 if state == "intro":
-                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                        intro_index += 1
-                        if intro_index >= len(intro_pages):
+                    if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                        intro_idx += 1
+                        if intro_idx >= len(intro_pages):
                             state = "play"
                     continue
 
-                # ----------------
-                # プレイ
-                # ----------------
                 if state in ("play", "clear"):
-                    if event.key == pygame.K_i and not talking:
+                    if ev.key == pygame.K_i and not talking:
                         status_message = load_all_json(npc_states, watashi, story)
 
-                    if event.key == pygame.K_SPACE:
+                    if ev.key == pygame.K_SPACE:
                         if talking:
-                            npc = npc_states[talking_npc_index]["data"]
-                            lines = npc.get("lines", [])
+                            if talk_phase == "choice":
+                                # choice画面でSPACE -> 会話終了
+                                talking = False
+                                talking_npc_idx = None
+                            else:
+                                current_line_idx += 1
+                                if current_line_idx >= len(current_lines):
+                                    talk_phase = "choice"
+                                    current_line_idx = 0
+                                    current_lines = []
+                        else:
+                            if nearest_idx is not None and nearest_dist <= TALK_DISTANCE:
+                                talking = True
+                                talking_npc_idx = nearest_idx
+                                talk_phase = "choice"
+                                selected_choice = 0
+                                current_lines = []
+                                current_line_idx = 0
+
+                    if talking and talk_phase == "choice":
+                        key_to_idx = {
+                            pygame.K_1: 0,
+                            pygame.K_KP1: 0,
+                            pygame.K_2: 1,
+                            pygame.K_KP2: 1,
+                            pygame.K_3: 2,
+                            pygame.K_KP3: 2,
+                        }
+                        if ev.key in key_to_idx:
+                            selected_choice = key_to_idx[ev.key]
+                            q_key = choice_items[selected_choice][0]
+
+                            npc = npc_states[talking_npc_idx]["data"]
+                            lines = npc["dialogue"].get(q_key, [])
 
                             if not lines:
-                                talking = False
-                                talking_npc_index = None
-                                talking_line_index = 0
-                            else:
-                                talking_line_index += 1
-                                if talking_line_index >= len(lines):
-                                    npc["talked"] = True
-                                    talking = False
-                                    talking_npc_index = None
-                                    talking_line_index = 0
-                        else:
-                            if nearest_index is not None and nearest_dist <= TALK_DISTANCE:
-                                talking = True
-                                talking_npc_index = nearest_index
-                                talking_line_index = 0
+                                lines = ["……（まだ準備中）", "JSONの dialogue を編集してみよう。"]
 
-        # ----------------
+                            npc["talked"] = True
+                            current_lines = lines
+                            current_line_idx = 0
+                            talk_phase = "lines"
+
         # 更新
-        # ----------------
         if state in ("play", "clear"):
-            # 全員と話したらクリア状態へ
-            all_talked = all(item["data"].get("talked", False) for item in npc_states)
-            if all_talked:
+            if all(s["data"].get("talked", False) for s in npc_states):
                 state = "clear"
 
-            # 移動（会話中は停止）
             if not talking:
                 keys = pygame.key.get_pressed()
                 dx = 0.0
@@ -875,77 +854,59 @@ def main():
                 if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
                     dx += PLAYER_SPEED * dt
 
-                move_rect_with_collisions(player_rect, dx, dy, OBSTACLES, MAP_RECT)
+                move_with_bounds(player_rect, dx, dy, MAP_RECT)
 
             update_npc_movement(npc_states, dt, freeze=talking)
 
-        # ----------------
         # 描画
-        # ----------------
         if state == "title":
             draw_title_screen(screen, font_l, font_m)
             pygame.display.flip()
             continue
 
         if state == "intro":
-            draw_intro_screen(
-                screen,
-                font_l,
-                font_m,
-                font_s,
-                intro_pages[intro_index],
-                intro_index,
-                len(intro_pages),
-                watashi,
-                story,
-            )
+            draw_intro_screen(screen, font_l, font_m, font_s, intro_pages[intro_idx], intro_idx, len(intro_pages), watashi, story)
             pygame.display.flip()
             continue
 
         screen.fill(COLOR_BG)
-        draw_map_background(screen)
+        draw_map(screen)
 
-        # 上部UI
-        talked_count = sum(1 for item in npc_states if item["data"].get("talked"))
-        mission_text = f"ミッション: 町の10人と会話する ({talked_count}/10)"
+        talked_count = sum(1 for s in npc_states if s["data"].get("talked"))
+        mission = f"ミッション: 10人と会話する ({talked_count}/10)"
 
-        if nearest_index is not None:
-            n = npc_states[nearest_index]["data"]
-            near_msg = f"最寄りNPC: {n['name']}（{n['role']}） / 距離: {int(nearest_dist)}"
+        if nearest_idx is not None:
+            n = npc_states[nearest_idx]["data"]
+            nearest = f"近く: {n['name']}（{n['role']}） 距離 {int(nearest_dist)}"
             if nearest_dist <= TALK_DISTANCE:
-                near_msg += "  -> SPACEで会話"
+                nearest += ""
         else:
-            near_msg = "最寄りNPC: なし"
+            nearest = "近く: なし"
 
-        draw_top_panel(screen, font_s, font_m, mission_text, status_message, near_msg)
+        draw_top_panel(screen, font_m, font_s, mission, nearest, status_message)
+        draw_npcs(screen, npc_states, nearest_idx, font_name)
+        draw_player(screen, player_rect, watashi["color_rgb"])
 
-        # キャラ描画
-        draw_npcs(screen, npc_states, nearest_index)
-        draw_player(screen, player_rect)
-
-        # 下部UI
-        if talking and talking_npc_index is not None:
-            npc = npc_states[talking_npc_index]["data"]
-            lines = npc.get("lines", [])
-            if lines:
-                line = lines[talking_line_index]
-            else:
-                line = "……（まだセリフがありません）\nJSONをChatGPTで更新して I キーで再読み込みしてください。"
-
+        if talking and talking_npc_idx is not None:
+            npc = npc_states[talking_npc_idx]["data"]
+            line = current_lines[current_line_idx] if current_lines else ""
             draw_dialog_panel(
                 screen,
+                font_dialog_title,
+                font_dialog_body,
                 font_s,
-                font_m,
                 npc,
+                talk_phase,
                 line,
-                talking_line_index,
-                len(lines),
+                current_line_idx,
+                len(current_lines),
+                selected_choice,
             )
         else:
-            hint = ""
+            msg = ""
             if state == "clear":
-                hint = "クリア！"
-            draw_bottom_hint(screen, font_s, hint)
+                msg = "クリア！"
+            draw_bottom_message(screen, font_dialog_body, msg)
 
         pygame.display.flip()
 
@@ -955,16 +916,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# ============================================================
-# 実行方法
-# ============================================================
-# 1) インストール（Python 3.14 では pygame-ce 推奨）
-#    pip install pygame-ce
-#
-# 2) 実行
-#    python simple_rpg_template.py
-#
-# 3) 操作方法は README.md を参照
-# ============================================================

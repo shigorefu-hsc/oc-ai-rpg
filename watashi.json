@@ -5,12 +5,13 @@
   "personality": "まじめ",
   "origin": "港町ミナト",
   "goal": "星の地図の欠片を集める",
-  "_ai_tags": {
+  "color_rgb": [66, 132, 255],
+  "_ai_hidden": {
     "language": "ja",
+    "student_visible_explanation": false,
     "task": "主人公設定を具体化する",
     "constraints": [
       "中高生向けに分かりやすい日本語",
-      "暴力/差別/過激表現を避ける",
       "JSON以外を出力しない",
       "キーを削除しない"
     ]

@@ -3,10 +3,17 @@
 ## Controls
 - `ENTER` : Start / Next page (title and intro)
 - `Arrow Keys` or `WASD` : Move player
-- `SPACE` : Talk / Next dialogue line
+- `SPACE` : Start talk / Next dialogue line / Close question menu
+- `1` / `2` / `3` : Select question during dialogue
 - `I` : Reload all JSON files
 
 ## JSON files
-- NPC: `npc_*.json` (10 files)
+- NPC (10 files): `npc_*.json`
 - Player: `watashi.json`
 - Story: `story.json`
+
+## NPC JSON format (new)
+- `color_rgb`: `[R, G, B]`
+- `dialogue.ask_self`
+- `dialogue.ask_about_me`
+- `dialogue.ask_anything`
