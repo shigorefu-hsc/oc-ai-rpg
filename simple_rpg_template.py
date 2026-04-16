@@ -191,13 +191,16 @@ def make_npc_template(npc_id: str, role: str, color_rgb: list[int]) -> dict:
             "student_visible_explanation": False,
             "task": "name/personality/dialogue/color_rgb を埋める",
             "constraints": [
-                "dialogue.ask_self は 2〜4 行",
-                "dialogue.ask_about_me は 2〜4 行",
-                "dialogue.ask_anything は 2〜4 行",
-                "1行は 8〜28 文字程度",
+                "dialogue の行数制限はなし（長文可）",
+                "ゲーム側では1画面あたり最大5行表示",
                 "color_rgb は [R,G,B] の整数(0〜255)",
                 "JSON以外を出力しない",
                 "キーを削除しない",
+            ],
+            "interaction_protocol": [
+                "生成前に生徒へ質問する",
+                "質問項目: 性格, 口調, 一人称, 主人公への態度, 好きなこと, 色RGB",
+                "生徒の回答を反映してJSONを返す"
             ],
             "world_tone": "ファンタジーRPGの町",
         },
@@ -229,22 +232,24 @@ def make_watashi_template() -> dict:
 def make_story_template() -> dict:
     return {
         "id": "story",
-        "world_name": "ルーメン王国",
-        "chapter_title": "朝霧のはじまり",
-        "intro_lines": [
-            "朝霧の王国ルーメンでは、古い星の地図が失われてしまった。",
-            "きみは見習い冒険者として、町の人と話しながら手がかりを探す。",
-            "まずは町にいる全員と会話して、物語を動かそう。",
-        ],
+        "world_name": "",
+        "chapter_title": "",
+        "intro_lines": [],
         "_ai_hidden": {
             "language": "ja",
             "student_visible_explanation": False,
             "task": "chapter_title と intro_lines を作る",
             "constraints": [
-                "intro_lines は 3〜5 行",
+                "行数制限なし（長文可）",
+                "ゲーム側では1画面あたり最大5行表示",
                 "中高生向けの安全な内容",
                 "JSON以外を出力しない",
                 "キーを削除しない",
+            ],
+            "interaction_protocol": [
+                "生成前に生徒へ質問する",
+                "質問項目: 世界観, 雰囲気, 主人公の立場, 最初の目的",
+                "生徒の回答を反映してJSONを返す"
             ],
         },
     }
@@ -296,6 +301,28 @@ def clean_lines(obj) -> list[str]:
         if s:
             out.append(s)
     return out
+
+
+def build_dialog_pages(raw_lines: list[str], font: pygame.font.Font, max_width: int, max_lines_per_page: int = 5) -> list[str]:
+    """
+    長文をページ分割する。
+    - JSON上の行数制限はなし
+    - 画面表示は1ページ最大5行
+    """
+    if not raw_lines:
+        return []
+
+    all_wrapped = []
+    for i, raw in enumerate(raw_lines):
+        wrapped = wrap_text_to_lines(raw, font, max_width)
+        all_wrapped.extend(wrapped)
+        if i < len(raw_lines) - 1:
+            all_wrapped.append("")
+
+    pages = []
+    for i in range(0, len(all_wrapped), max_lines_per_page):
+        pages.append("\n".join(all_wrapped[i : i + max_lines_per_page]))
+    return pages
 
 
 def parse_rgb(obj, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
@@ -531,12 +558,12 @@ def draw_npcs(screen, npc_states, nearest_idx, font_name):
         # 近いNPCは「Talk」ではなく名前表示
         if nearest_idx == i:
             name = d["name"]
-            w = max(56, min(170, font_name.size(name)[0] + 16))
-            bubble = pygame.Rect(r.centerx - w // 2, r.y - 25, w, 20)
+            w = max(72, min(220, font_name.size(name)[0] + 20))
+            bubble = pygame.Rect(r.centerx - w // 2, r.y - 30, w, 24)
             pygame.draw.rect(screen, (255, 255, 255), bubble, border_radius=9)
             pygame.draw.rect(screen, COLOR_PANEL_BORDER, bubble, 1, border_radius=9)
             img = font_name.render(name, True, COLOR_TEXT)
-            screen.blit(img, (bubble.centerx - img.get_width() // 2, bubble.y + 2))
+            screen.blit(img, (bubble.centerx - img.get_width() // 2, bubble.y + 3))
 
 
 def draw_player(screen, rect, color_rgb):
@@ -581,9 +608,9 @@ def draw_dialog_panel(
         h_img = font_small.render(hint, True, COLOR_TEXT)
         screen.blit(h_img, (SCREEN_WIDTH - h_img.get_width() - 20, panel.bottom - 32))
     else:
-        # 文字を小さめにして、下欄は広く
+        # 下欄は広く。1ページ最大5行で表示
         body_rect = pygame.Rect(22, panel.y + 58, SCREEN_WIDTH - 44, 176)
-        draw_text_block(screen, line, font_body, COLOR_TEXT, body_rect, line_spacing=7, max_lines=6)
+        draw_text_block(screen, line, font_body, COLOR_TEXT, body_rect, line_spacing=7, max_lines=5)
 
         page = f"{line_idx + 1}/{max(1, line_total)}"
         p_img = font_small.render(page, True, COLOR_TEXT)
@@ -677,10 +704,10 @@ def main():
     font_s = get_font(22)
     font_m = get_font(30)
     font_l = get_font(42)
-    font_name = get_font(16)
+    font_name = get_font(18)
     # 下部会話用は小さめ
     font_dialog_title = get_font(27)
-    font_dialog_body = get_font(24)
+    font_dialog_body = get_font(26)
 
     ensure_json_templates_exist()
 
@@ -693,15 +720,7 @@ def main():
         "color_rgb": (66, 132, 255),
     }
 
-    story = {
-        "world_name": "ルーメン王国",
-        "chapter_title": "朝霧のはじまり",
-        "intro_lines": [
-            "朝霧の王国ルーメンでは、古い星の地図が失われてしまった。",
-            "きみは見習い冒険者として、町の人と話しながら手がかりを探す。",
-            "まずは町にいる全員と会話して、物語を動かそう。",
-        ],
-    }
+    story = {"world_name": "", "chapter_title": "", "intro_lines": []}
 
     player_rect = pygame.Rect(MAP_RECT.x + 56, MAP_RECT.y + 65, PLAYER_SIZE, PLAYER_SIZE)
 
@@ -749,8 +768,8 @@ def main():
     talking_npc_idx = None
     talk_phase = "choice"  # choice / lines
     selected_choice = 0
-    current_lines = []
-    current_line_idx = 0
+    current_pages = []
+    current_page_idx = 0
 
     choice_items = [
         ("ask_self", "自己紹介して"),
@@ -797,19 +816,19 @@ def main():
                                 talking = False
                                 talking_npc_idx = None
                             else:
-                                current_line_idx += 1
-                                if current_line_idx >= len(current_lines):
+                                current_page_idx += 1
+                                if current_page_idx >= len(current_pages):
                                     talk_phase = "choice"
-                                    current_line_idx = 0
-                                    current_lines = []
+                                    current_page_idx = 0
+                                    current_pages = []
                         else:
                             if nearest_idx is not None and nearest_dist <= TALK_DISTANCE:
                                 talking = True
                                 talking_npc_idx = nearest_idx
                                 talk_phase = "choice"
                                 selected_choice = 0
-                                current_lines = []
-                                current_line_idx = 0
+                                current_pages = []
+                                current_page_idx = 0
 
                     if talking and talk_phase == "choice":
                         key_to_idx = {
@@ -831,8 +850,13 @@ def main():
                                 lines = ["……（まだ準備中）", "JSONの dialogue を編集してみよう。"]
 
                             npc["talked"] = True
-                            current_lines = lines
-                            current_line_idx = 0
+                            current_pages = build_dialog_pages(
+                                lines,
+                                font_dialog_body,
+                                SCREEN_WIDTH - 44,
+                                max_lines_per_page=5,
+                            )
+                            current_page_idx = 0
                             talk_phase = "lines"
 
         # 更新
@@ -889,7 +913,7 @@ def main():
 
         if talking and talking_npc_idx is not None:
             npc = npc_states[talking_npc_idx]["data"]
-            line = current_lines[current_line_idx] if current_lines else ""
+            line = current_pages[current_page_idx] if current_pages else ""
             draw_dialog_panel(
                 screen,
                 font_dialog_title,
@@ -898,12 +922,12 @@ def main():
                 npc,
                 talk_phase,
                 line,
-                current_line_idx,
-                len(current_lines),
+                current_page_idx,
+                len(current_pages),
                 selected_choice,
             )
         else:
-            msg = ""
+            msg = "移動: 矢印 / WASD"
             if state == "clear":
                 msg = "クリア！"
             draw_bottom_message(screen, font_dialog_body, msg)

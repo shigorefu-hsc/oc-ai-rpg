@@ -1,21 +1,23 @@
 {
   "id": "story",
-  "world_name": "ルーメン王国",
-  "chapter_title": "朝霧のはじまり",
-  "intro_lines": [
-    "朝霧の王国ルーメンでは、古い星の地図が失われてしまった。",
-    "きみは見習い冒険者として、町の人と話しながら手がかりを探す。",
-    "まずは町にいる全員と会話して、物語を動かそう。"
-  ],
+  "world_name": "",
+  "chapter_title": "",
+  "intro_lines": [],
   "_ai_hidden": {
     "language": "ja",
     "student_visible_explanation": false,
     "task": "chapter_title と intro_lines を作る",
     "constraints": [
-      "intro_lines は 3〜5 行",
+      "行数制限なし（長文可）",
+      "ゲーム側では1画面あたり最大5行表示",
       "中高生向けの安全な内容",
       "JSON以外を出力しない",
       "キーを削除しない"
+    ],
+    "interaction_protocol": [
+      "生成前に生徒へ質問する",
+      "質問項目: 世界観, 雰囲気, 主人公の立場, 最初の目的",
+      "生徒の回答を反映してJSONを返す"
     ]
   }
 }

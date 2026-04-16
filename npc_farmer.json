@@ -16,13 +16,16 @@
     "student_visible_explanation": false,
     "task": "name/personality/dialogue/color_rgb を埋める",
     "constraints": [
-      "dialogue.ask_self は 2〜4 行",
-      "dialogue.ask_about_me は 2〜4 行",
-      "dialogue.ask_anything は 2〜4 行",
-      "1行は 8〜28 文字程度",
+      "dialogue の行数制限はなし（長文可）",
+      "ゲーム側では1画面あたり最大5行表示",
       "color_rgb は [R,G,B] の整数(0〜255)",
       "JSON以外を出力しない",
       "キーを削除しない"
+    ],
+    "interaction_protocol": [
+      "生成前に生徒へ質問する",
+      "質問項目: 性格, 口調, 一人称, 主人公への態度, 好きなこと, 色RGB",
+      "生徒の回答を反映してJSONを返す"
     ],
     "world_tone": "ファンタジーRPGの町"
   }

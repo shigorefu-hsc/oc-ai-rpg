@@ -11,9 +11,13 @@
     "student_visible_explanation": false,
     "task": "主人公設定を具体化する",
     "constraints": [
-      "中高生向けに分かりやすい日本語",
       "JSON以外を出力しない",
       "キーを削除しない"
+    ],
+    "interaction_protocol": [
+      "生成前に生徒へ質問する",
+      "質問項目: 名前, 呼ばれ方, 性格, 出身, 目的, 色RGB",
+      "生徒の回答を反映してJSONを返す"
     ]
   }
 }
