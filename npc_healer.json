@@ -1,0 +1,21 @@
+{
+  "id": "healer",
+  "role": "治療師",
+  "name": "治療師",
+  "personality": "",
+  "lines": [],
+  "move_speed": 58,
+  "roam_radius": 85,
+  "_ai_tags": {
+    "language": "ja",
+    "task": "name, personality, lines を埋める",
+    "constraints": [
+      "lines は 3〜5 個",
+      "1行は 8〜28 文字程度",
+      "授業向けに安全な内容",
+      "JSON以外を出力しない",
+      "キーを削除しない"
+    ],
+    "tone_hint": "世界観はファンタジーRPGの町"
+  }
+}
