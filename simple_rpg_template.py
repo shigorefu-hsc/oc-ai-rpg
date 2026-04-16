@@ -570,6 +570,23 @@ def draw_player(screen, rect, color_rgb):
     pygame.draw.rect(screen, color_rgb, rect, border_radius=7)
     pygame.draw.rect(screen, COLOR_PLAYER_BORDER, rect, 2, border_radius=7)
 
+    # 主人公マーク: 小さな王冠
+    crown_w = 18
+    crown_h = 10
+    cx = rect.centerx
+    base_y = rect.y - 6
+
+    crown_points = [
+        (cx - crown_w // 2, base_y),
+        (cx - crown_w // 3, base_y - crown_h),
+        (cx, base_y - crown_h // 2 - 3),
+        (cx + crown_w // 3, base_y - crown_h),
+        (cx + crown_w // 2, base_y),
+    ]
+
+    pygame.draw.polygon(screen, (245, 206, 78), crown_points)
+    pygame.draw.polygon(screen, COLOR_PANEL_BORDER, crown_points, 1)
+
 
 def draw_dialog_panel(
     screen,
