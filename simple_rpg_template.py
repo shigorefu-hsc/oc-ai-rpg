@@ -30,7 +30,7 @@ TOP_PANEL_HEIGHT = 120
 BOTTOM_PANEL_HEIGHT = 300  # 前より大きく
 MAP_MARGIN = 14
 
-PLAYER_SIZE = 34
+PLAYER_SIZE = 39  # примерно +15%
 PLAYER_SPEED = 220.0
 TALK_DISTANCE = 88
 
@@ -510,7 +510,7 @@ def find_nearest_npc(player_rect: pygame.Rect, npc_states: list[dict]):
 # ============================================================
 # 描画
 # ============================================================
-def draw_top_panel(screen, font_m, font_s, mission_text, nearest_text, status_text):
+def draw_top_panel(screen, font_m, font_s, mission_text, status_text):
     panel = pygame.Rect(0, 0, SCREEN_WIDTH, TOP_PANEL_HEIGHT)
     pygame.draw.rect(screen, COLOR_TOP_PANEL, panel)
     pygame.draw.line(screen, COLOR_PANEL_BORDER, (0, panel.bottom - 1), (SCREEN_WIDTH, panel.bottom - 1), 2)
@@ -520,7 +520,6 @@ def draw_top_panel(screen, font_m, font_s, mission_text, nearest_text, status_te
     screen.blit(img, (20, 12))
 
     draw_text_block(screen, mission_text, font_s, COLOR_TEXT, pygame.Rect(22, 50, SCREEN_WIDTH - 44, 28), max_lines=1)
-    draw_text_block(screen, nearest_text, font_s, COLOR_TEXT, pygame.Rect(22, 78, SCREEN_WIDTH - 44, 26), max_lines=1)
 
     # JSON案内は上部から消し、短い状態だけ右上へ
     sbox = pygame.Rect(SCREEN_WIDTH - 290, 12, 270, 34)
@@ -555,6 +554,15 @@ def draw_npcs(screen, npc_states, nearest_idx, font_name):
         pygame.draw.rect(screen, col, r, border_radius=7)
         pygame.draw.rect(screen, COLOR_PANEL_BORDER, r, 2, border_radius=7)
 
+        # かんたんな顔（目2つ + 口）
+        eye_y = r.y + 11
+        left_eye = (r.x + 11, eye_y)
+        right_eye = (r.x + r.width - 11, eye_y)
+        pygame.draw.circle(screen, COLOR_PANEL_BORDER, left_eye, 2)
+        pygame.draw.circle(screen, COLOR_PANEL_BORDER, right_eye, 2)
+        mouth_rect = pygame.Rect(r.x + 10, r.y + 17, r.width - 20, 7)
+        pygame.draw.arc(screen, COLOR_PANEL_BORDER, mouth_rect, 0.2, math.pi - 0.2, 1)
+
         if d.get("talked"):
             pygame.draw.circle(screen, COLOR_DONE_MARK, (r.right + 6, r.y + 6), 5)
 
@@ -572,6 +580,15 @@ def draw_npcs(screen, npc_states, nearest_idx, font_name):
 def draw_player(screen, rect, color_rgb):
     pygame.draw.rect(screen, color_rgb, rect, border_radius=7)
     pygame.draw.rect(screen, COLOR_PLAYER_BORDER, rect, 2, border_radius=7)
+
+    # 主人公の顔（NPCと同じくシンプル）
+    eye_y = rect.y + 11
+    left_eye = (rect.x + 11, eye_y)
+    right_eye = (rect.x + rect.width - 11, eye_y)
+    pygame.draw.circle(screen, COLOR_PLAYER_BORDER, left_eye, 2)
+    pygame.draw.circle(screen, COLOR_PLAYER_BORDER, right_eye, 2)
+    mouth_rect = pygame.Rect(rect.x + 10, rect.y + 17, rect.width - 20, 7)
+    pygame.draw.arc(screen, COLOR_PLAYER_BORDER, mouth_rect, 0.2, math.pi - 0.2, 1)
 
     # 主人公マーク: 小さな王冠
     crown_w = 18
@@ -829,6 +846,7 @@ def main():
     if audio_enabled and MUMBLE_SFX_FILE.exists():
         try:
             mumble_sfx = pygame.mixer.Sound(str(MUMBLE_SFX_FILE))
+            mumble_sfx.set_volume(1.0)
         except Exception:
             mumble_sfx = None
 
@@ -973,15 +991,7 @@ def main():
         talked_count = sum(1 for s in npc_states if s["data"].get("talked"))
         mission = f"ミッション: 10人と会話する ({talked_count}/10)"
 
-        if nearest_idx is not None:
-            n = npc_states[nearest_idx]["data"]
-            nearest = f"近く: {n['name']}（{n['role']}）"
-            if nearest_dist <= TALK_DISTANCE:
-                nearest += ""
-        else:
-            nearest = "近く: なし"
-
-        draw_top_panel(screen, font_m, font_s, mission, nearest, status_message)
+        draw_top_panel(screen, font_m, font_s, mission, status_message)
         draw_npcs(screen, npc_states, nearest_idx, font_name)
         draw_player(screen, player_rect, watashi["color_rgb"])
 
