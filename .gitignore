@@ -1,5 +1,7 @@
 .idea/
 __pycache__/
-build/
-dist/
-*.spec
+.venv/
+*.pyc
+installer/build/
+installer/dist/
+installer/*.spec

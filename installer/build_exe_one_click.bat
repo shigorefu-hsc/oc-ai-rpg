@@ -2,10 +2,10 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "PS1_PATH=%SCRIPT_DIR%install_windows.ps1"
+set "PS1_PATH=%SCRIPT_DIR%build_windows_exe.ps1"
 
 if not exist "%PS1_PATH%" (
-  echo ERROR: install_windows.ps1 not found:
+  echo ERROR: build_windows_exe.ps1 not found:
   echo %PS1_PATH%
   pause
   exit /b 1
@@ -16,7 +16,7 @@ set "EXITCODE=%ERRORLEVEL%"
 
 if not "%EXITCODE%"=="0" (
   echo.
-  echo Installer failed with exit code %EXITCODE%.
+  echo Build failed with exit code %EXITCODE%.
   pause
 )
 
