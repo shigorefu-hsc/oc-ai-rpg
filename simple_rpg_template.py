@@ -18,6 +18,17 @@ from pathlib import Path
 
 import pygame
 
+# 実行場所の基準:
+# - 通常実行: BASE_DIR = この.pyがある場所
+# - .exe実行(pyinstaller): BASE_DIR = .exeがある場所
+# JSONは常に BASE_DIR から読み書きし、音声は RESOURCE_DIR から読む
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    RESOURCE_DIR = BASE_DIR
+
 
 # ============================================================
 # 【ここを編集】画面とゲーム基本設定
@@ -76,23 +87,23 @@ BASE_NPCS = [
 ]
 
 NPC_JSON_FILES = {
-    "seller": Path("npc_seller.json"),
-    "blacksmith": Path("npc_blacksmith.json"),
-    "guard": Path("npc_guard.json"),
-    "healer": Path("npc_healer.json"),
-    "scholar": Path("npc_scholar.json"),
-    "child": Path("npc_child.json"),
-    "farmer": Path("npc_farmer.json"),
-    "traveler": Path("npc_traveler.json"),
-    "bard": Path("npc_bard.json"),
-    "mystic": Path("npc_mystic.json"),
+    "seller": BASE_DIR / "npc_seller.json",
+    "blacksmith": BASE_DIR / "npc_blacksmith.json",
+    "guard": BASE_DIR / "npc_guard.json",
+    "healer": BASE_DIR / "npc_healer.json",
+    "scholar": BASE_DIR / "npc_scholar.json",
+    "child": BASE_DIR / "npc_child.json",
+    "farmer": BASE_DIR / "npc_farmer.json",
+    "traveler": BASE_DIR / "npc_traveler.json",
+    "bard": BASE_DIR / "npc_bard.json",
+    "mystic": BASE_DIR / "npc_mystic.json",
 }
 
-WATASHI_JSON_FILE = Path("watashi.json")
-STORY_JSON_FILE = Path("story.json")
-INTRO_MUSIC_FILE = Path("intro.mp3")
-LEVEL_MUSIC_FILE = Path("level.mp3")
-MUMBLE_SFX_FILE = Path("mumble.wav")
+WATASHI_JSON_FILE = BASE_DIR / "watashi.json"
+STORY_JSON_FILE = BASE_DIR / "story.json"
+INTRO_MUSIC_FILE = RESOURCE_DIR / "intro.mp3"
+LEVEL_MUSIC_FILE = RESOURCE_DIR / "level.mp3"
+MUMBLE_SFX_FILE = RESOURCE_DIR / "mumble.wav"
 
 
 # ============================================================
