@@ -1,0 +1,43 @@
+name: Browser demo checks
+on:
+  push:
+    paths:
+      [
+        'web/**',
+        'server/**',
+        'shared/**',
+        'infra/**',
+        'scripts/**',
+        'tests/**',
+        'package*.json',
+        'tsconfig.json',
+        'vite.config.ts',
+        '.github/workflows/web.yml',
+      ]
+  pull_request:
+    paths:
+      [
+        'web/**',
+        'server/**',
+        'shared/**',
+        'infra/**',
+        'scripts/**',
+        'tests/**',
+        'package*.json',
+        'tsconfig.json',
+        'vite.config.ts',
+        '.github/workflows/web.yml',
+      ]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
