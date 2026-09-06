@@ -313,3 +313,25 @@ test('opaque session rows have TTL but saved work rows never do', async () => {
   const w = await f.teacher.create();
   assert.equal((await f.store.get('data', 'WORK#' + w.id))!.ttl, undefined);
 });
+
+test('30 simultaneous students can reserve and settle without losing calls', async () => {
+  const f = fixture();
+  await f.teacher.login();
+  const works = await Promise.all(Array.from({ length: 30 }, () => f.teacher.create()));
+  const results = await Promise.all(
+    works.map(async (w) =>
+      events(await f.teacher.call('/works/' + w.id + '/chat', 'POST', message())),
+    ),
+  );
+  assert.equal(
+    results.filter((e) => e.some((x) => x.event === 'done')).length,
+    30,
+    JSON.stringify(results.filter((e) => !e.some((x) => x.event === 'done'))),
+  );
+  for (const w of works) {
+    const saved = (await f.teacher.json('/works/' + w.id)).work;
+    assert.equal(saved.usage.nova.calls, 1);
+    assert.equal(saved.sessionAttempts, 1);
+    assert.equal(saved.busy, false);
+  }
+});

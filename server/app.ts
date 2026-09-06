@@ -121,11 +121,15 @@ export class App {
     ];
   }
   private async retry<T>(fn: () => Promise<T>): Promise<T> {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       try {
         return await fn();
       } catch (e) {
         if (!(e instanceof Conflict)) throw e;
+        // Spread competing writes to the shared monthly budget; never retry the model call here.
+        await new Promise((resolve) =>
+          setTimeout(resolve, 15 + Math.random() * Math.min(250, 20 * 2 ** i)),
+        );
       }
     }
     throw error(409, 'CONFLICT', '別の変更を処理しています。少し待ってお試しください。');

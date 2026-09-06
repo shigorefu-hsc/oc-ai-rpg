@@ -112,6 +112,7 @@ export class DynamoStore implements Store {
     try {
       await this.db.send(
         new TransactWriteCommand({
+          ClientRequestToken: crypto.randomUUID(),
           TransactItems: changes.map((c) => {
             const common = {
               TableName: this.names[c.table],
