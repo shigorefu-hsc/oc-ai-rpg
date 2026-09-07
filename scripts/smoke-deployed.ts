@@ -9,7 +9,7 @@ import {
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 const d = JSON.parse(await readFile('.local/deployment.json', 'utf8')),
-  base = d.URL.replace(/\/$/, '');
+  base = (process.env.SMOKE_URL ?? d.URL).replace(/\/$/, '');
 const cognito = new CognitoIdentityProviderClient({ region: d.region }),
   db = DynamoDBDocumentClient.from(new DynamoDBClient({ region: d.region }));
 const username = 'smoke-' + randomBytes(6).toString('hex'),
@@ -23,7 +23,12 @@ const sessionTokens = new Set<string>();
 async function call(path: string, method = 'GET', body?: unknown) {
   const r = await fetch(base + '/api' + path, {
     method,
-    headers: { origin: base, cookie, 'content-type': 'application/json', 'x-csrf-token': csrf },
+    headers: {
+      origin: new URL(base).origin,
+      cookie,
+      'content-type': 'application/json',
+      'x-csrf-token': csrf,
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const c = r.headers.get('set-cookie');
@@ -81,9 +86,9 @@ try {
   const page = await fetch(base + '/');
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.ok(html.includes('ことばの街'));
-  for (const asset of [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]))
-    assert.equal((await fetch(base + asset)).status, 200);
+  assert.ok(html.includes('AIたいけん'));
+  for (const asset of [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map((m) => m[1]))
+    assert.equal((await fetch(new URL(asset, base + '/'))).status, 200);
   const created = await cognito.send(
     new AdminCreateUserCommand({
       UserPoolId: d.UserPoolId,

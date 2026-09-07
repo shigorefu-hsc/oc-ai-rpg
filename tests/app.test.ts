@@ -335,3 +335,187 @@ test('30 simultaneous students can reserve and settle without losing calls', asy
     assert.equal(saved.busy, false);
   }
 });
+
+import {
+  DEFAULT_PROMPT,
+  toolKeys,
+  program,
+  newRun,
+  executeAction,
+  labContext,
+  type LabConfig,
+  type LabRun,
+} from '../shared/lab';
+const labConfig = (overrides: Partial<LabConfig> = {}): LabConfig => ({
+  mode: 'agent',
+  model: 'nova',
+  scenario: 'original',
+  prompt: DEFAULT_PROMPT,
+  memory: true,
+  tools: [...toolKeys],
+  prediction: 'テスト',
+  ...overrides,
+});
+async function startLab(
+  f: ReturnType<typeof fixture>,
+  id: string,
+  options: Partial<LabConfig> = {},
+) {
+  return (await f.teacher.json('/works/' + id + '/lab-start', 'POST', labConfig(options)))
+    .run as LabRun;
+}
+const labMessage = (run: LabRun) => ({ requestId: crypto.randomUUID(), runId: run.id });
+test('fixed program succeeds in A, fails in B; success requires actual key transfer and look', () => {
+  for (const scenario of ['original', 'moved'] as const) {
+    const run = newRun('x', labConfig({ scenario }), 0);
+    let world = run.world;
+    for (const a of program) world = executeAction(world, a, toolKeys).world;
+    assert.equal(world.delivered, scenario === 'original');
+  }
+  let world = newRun('x', labConfig(), 0).world;
+  world = executeAction(world, { tool: 'finish' }, toolKeys).world;
+  assert.equal(world.delivered, false);
+  world = executeAction(world, { tool: 'move', place: 'fountain' }, toolKeys).world;
+  world = executeAction(world, { tool: 'take' }, toolKeys).world;
+  assert.equal(world.carrying, false);
+  world = executeAction(
+    world,
+    { tool: 'look' },
+    toolKeys.filter((t) => t !== 'look'),
+  ).world;
+  assert.equal(world.found, false);
+});
+test('hidden key location is never sent to AI; memory off removes prior observations', () => {
+  const r = newRun('x', labConfig({ scenario: 'moved' }), 0);
+  assert.ok(!JSON.stringify(labContext(r)).includes('keyLocation'));
+  assert.ok(!JSON.stringify(labContext(r)).includes('moved'));
+  r.steps.push({
+    reply: 'secret previous reply',
+    result: 'earlier observation',
+    action: null,
+  } as any);
+  assert.ok(JSON.stringify(labContext(r)).includes('earlier observation'));
+  r.config.memory = false;
+  assert.deepEqual(labContext(r).memory, []);
+  assert.ok(!JSON.stringify(labContext(r)).includes('earlier observation'));
+});
+test('agent adapts to moved key in eight steps; repeated step is idempotent and new experiments preserve old runs', async () => {
+  const f = fixture();
+  await f.teacher.login();
+  const w = await f.teacher.create();
+  let run = await startLab(f, w.id, { scenario: 'moved', model: 'haiku' });
+  const first = labMessage(run);
+  let done = await completed(await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', first));
+  const duplicate = await completed(
+    await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', first),
+  );
+  assert.equal(duplicate.work.attempts, 1);
+  assert.equal(duplicate.run.steps.length, 1);
+  run = done.run;
+  while (run.status === 'running')
+    run = (
+      await completed(await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run)))
+    ).run;
+  assert.equal(run.status, 'success');
+  assert.equal(run.steps.length, 8);
+  assert.equal(run.usage.calls, 8);
+  assert.equal(
+    (await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run))).status,
+    409,
+  );
+  await f.teacher.json('/works/' + w.id + '/lab-reflection', 'POST', {
+    runId: run.id,
+    reflection: '道具の結果で次の行動が変わった。',
+  });
+  await startLab(f, w.id);
+  const all = await f.teacher.json('/works/' + w.id + '/lab-runs');
+  assert.equal(all.runs.length, 2);
+  assert.ok(all.runs.some((r: LabRun) => r.reflection.includes('道具')));
+});
+test('chat never changes game world; program uses no paid model calls', async () => {
+  const f = fixture();
+  await f.teacher.login();
+  const w = await f.teacher.create();
+  let run = await startLab(f, w.id, { mode: 'chat' });
+  const initial = run.world;
+  run = (
+    await completed(await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run)))
+  ).run;
+  assert.deepEqual(run.world, initial);
+  assert.equal(run.steps[0].action, null);
+  assert.equal(run.usage.calls, 1);
+  run = await startLab(f, w.id, { mode: 'program' });
+  while (run.status === 'running')
+    run = (
+      await completed(await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run)))
+    ).run;
+  assert.equal(run.status, 'success');
+  assert.equal(run.usage.calls, 0);
+  assert.equal((await f.teacher.json('/works/' + w.id)).work.attempts, 1);
+});
+test('agent disabled tools cannot run and repeated requests cannot bypass call limit', async () => {
+  const f = fixture(undefined, { maxCalls: 1 });
+  await f.teacher.login();
+  const w = await f.teacher.create();
+  let run = await startLab(f, w.id, { tools: ['look'] });
+  run = (
+    await completed(await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run)))
+  ).run;
+  assert.match(run.steps[0].result, /許可されていません/);
+  const e = await events(
+    await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run)),
+  );
+  assert.equal(e.at(-1)!.data.code, 'CALL_LIMIT');
+  assert.equal((await f.teacher.json('/works/' + w.id)).work.attempts, 1);
+});
+test('stopping an in-flight agent prevents world updates but preserves billing', async () => {
+  const ai = new GateAI(),
+    f = fixture(ai);
+  await f.teacher.login();
+  const w = await f.teacher.create();
+  const run = await startLab(f, w.id);
+  const running = await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run));
+  await ai.started;
+  await f.teacher.json('/works/' + w.id + '/lab-stop', 'POST', { runId: run.id });
+  ai.release();
+  const e = await events(running);
+  assert.equal(e.at(-1)!.data.code, 'STOPPED');
+  const saved = (await f.teacher.json('/works/' + w.id + '/lab-runs')).runs[0];
+  assert.equal(saved.status, 'stopped');
+  assert.equal(saved.steps.length, 0);
+  assert.equal(saved.usage.calls, 1);
+  assert.equal((await f.teacher.json('/works/' + w.id)).work.busy, false);
+});
+test('expiring student session during an agent step blocks the action and retains experiment', async () => {
+  const ai = new GateAI(),
+    f = fixture(ai);
+  await f.teacher.login();
+  const w = await f.teacher.create();
+  await f.teacher.json('/works/' + w.id + '/start', 'POST', {});
+  await f.teacher.json('/bootstrap');
+  const run = await startLab(f, w.id);
+  const response = await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run));
+  await ai.started;
+  f.advance(3600000);
+  ai.release();
+  const e = await events(response);
+  assert.equal(e.at(-1)!.data.code, 'SESSION_EXPIRED');
+  const rows = await f.store.query<LabRun>('data', 'WORK#' + w.id, 'LABRUN#');
+  assert.equal(rows.items[0].data.steps.length, 0);
+  assert.equal(rows.items[0].ttl, undefined);
+  assert.equal((await f.teacher.call('/works/' + w.id + '/lab-runs')).status, 401);
+});
+test('invalid agent output is charged once and never executes', async () => {
+  const f = fixture(new BadAI());
+  await f.teacher.login();
+  const w = await f.teacher.create();
+  const run = await startLab(f, w.id);
+  const e = await events(
+    await f.teacher.call('/works/' + w.id + '/lab-step', 'POST', labMessage(run)),
+  );
+  assert.equal(e.at(-1)!.data.code, 'INVALID_OUTPUT');
+  const saved = (await f.teacher.json('/works/' + w.id + '/lab-runs')).runs[0];
+  assert.deepEqual(saved.world, run.world);
+  assert.equal(saved.usage.calls, 1);
+  assert.equal(saved.steps.length, 0);
+});

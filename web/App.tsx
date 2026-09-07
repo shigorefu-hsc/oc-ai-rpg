@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ModelKey, PublicWork, WorkSummary } from '../shared/domain';
-import { MODELS, behaviorNames, usd } from '../shared/domain';
+import { MODELS, usd } from '../shared/domain';
 import { Bootstrap, request, setCsrf } from './api';
-import Game from './Game';
-import Chat from './Chat';
+import Lab from './Lab';
 const modelOptions = (
   <>
     <option value="nova">Amazon Nova Lite</option>
@@ -29,17 +28,13 @@ export default function App() {
     [work, setWork] = useState<PublicWork | null>(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
-    [target, setTarget] = useState('seller'),
-    [mode, setMode] = useState<'edit' | 'talk'>('edit'),
     [tab, setTab] = useState<'archive' | 'settings'>('archive'),
     [now, setNow] = useState(Date.now()),
     [invite, setInvite] = useState(''),
-    [notice, setNotice] = useState(''),
-    [muted, setMuted] = useState(true);
+    [notice, setNotice] = useState('');
   const [title, setTitle] = useState(''),
     [chosen, setChosen] = useState<ModelKey>('nova');
-  const audio = useRef<HTMLAudioElement | null>(null),
-    actionLock = useRef(false),
+  const actionLock = useRef(false),
     initializing = useRef<Promise<void> | null>(null);
   const reload = useCallback(async () => {
     const b: Bootstrap = await request('/bootstrap');
@@ -97,19 +92,6 @@ export default function App() {
   useEffect(() => {
     actionLock.current = busy;
   }, [busy]);
-  useEffect(
-    () => () => {
-      audio.current?.pause();
-      audio.current = null;
-    },
-    [],
-  );
-  useEffect(() => {
-    if (expired || !work) {
-      audio.current?.pause();
-      setMuted(true);
-    }
-  }, [expired, work?.id]);
   async function act(fn: () => Promise<void>) {
     if (actionLock.current) return;
     actionLock.current = true;
@@ -129,8 +111,6 @@ export default function App() {
     await act(async () => {
       const v = await request('/works/' + id);
       setWork(v.work);
-      setTarget('seller');
-      setMode('edit');
       setInvite('');
     });
   }
@@ -142,8 +122,6 @@ export default function App() {
       });
       setWork(v.work);
       setTitle('');
-      setTarget('seller');
-      setMode('edit');
     });
   }
   async function saveSettings(model: ModelKey, aiEnabled: boolean) {
@@ -154,34 +132,6 @@ export default function App() {
       setNotice('設定を保存しました。');
     });
   }
-  async function changeModel(model: ModelKey) {
-    await act(async () => {
-      const v = await request('/works/' + work!.id + '/model', 'PATCH', { model });
-      setWork(v.work);
-      setNotice('この作品のモデルを変更しました。');
-    });
-  }
-  async function toggleAudio() {
-    try {
-      if (!muted) {
-        audio.current?.pause();
-        setMuted(true);
-        return;
-      }
-      if (!audio.current) {
-        const a = await request('/assets');
-        audio.current = new Audio(a.level);
-        audio.current.loop = true;
-        audio.current.volume = 0.25;
-      }
-      await audio.current.play();
-      setMuted(false);
-    } catch {
-      setError('音楽を再生できませんでした。もう一度お試しください。');
-    }
-  }
-  const selected = work?.npcs.find((n) => n.id === target),
-    selectedName = target === 'hero' ? '主人公' : target === 'story' ? '物語' : selected?.name;
   const remaining = Math.max(0, Math.ceil(((boot?.expiresAt ?? 0) - now) / 1000));
   const clock =
     Math.floor(remaining / 60)
@@ -190,99 +140,38 @@ export default function App() {
     ':' +
     (remaining % 60).toString().padStart(2, '0');
   const blocked = !!(expired || busy || work?.busy);
-  function select(id: string) {
-    if (busy) return;
-    setTarget(id);
-    if (id === 'hero' || id === 'story') setMode('edit');
-  }
-  function exportWork() {
+  async function exportWork() {
     if (!work) return;
+    const runs = [];
+    let cursor: string | undefined;
+    do {
+      const page = await request(
+        '/works/' + work.id + '/lab-runs' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''),
+      );
+      runs.push(...page.runs);
+      cursor = page.cursor;
+    } while (cursor);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(
-      new Blob([JSON.stringify(work, null, 2)], { type: 'application/json' }),
+      new Blob([JSON.stringify({ work, runs }, null, 2)], { type: 'application/json' }),
     );
     a.download = 'kotoba-' + work.id + '.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  useEffect(() => {
-    type Tool = {
-      name: string;
-      description: string;
-      inputSchema: object;
-      annotations: object;
-      execute: (input: unknown) => unknown;
-    };
-    const context = (
-      document as Document & {
-        modelContext?: { registerTool: (tool: Tool, options: { signal: AbortSignal }) => unknown };
-      }
-    ).modelContext;
-    if (!context || !work || expired) return;
-    const controller = new AbortController();
-    const tools: Tool[] = [
-      {
-        name: 'read_current_work',
-        description:
-          'Read the work currently visible in the game, its NPC profiles and selected model.',
-        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-        annotations: { readOnlyHint: true, untrustedContentHint: true },
-        execute: () => ({
-          title: work.title,
-          model: work.model,
-          npcs: work.npcs,
-          story: work.story,
-        }),
-      },
-      {
-        name: 'select_character',
-        description:
-          'Select a character in the visible editor. Does not edit a profile or call AI.',
-        inputSchema: {
-          type: 'object',
-          properties: { id: { type: 'string' } },
-          required: ['id'],
-          additionalProperties: false,
-        },
-        annotations: { readOnlyHint: false, untrustedContentHint: false },
-        execute: (input) => {
-          const i = input as { id?: unknown };
-          if (
-            !i ||
-            typeof i.id !== 'string' ||
-            Object.keys(i).length !== 1 ||
-            (!['hero', 'story'].includes(i.id) && !work.npcs.some((n) => n.id === i.id))
-          )
-            throw new Error('Unknown character');
-          if (busy) throw new Error('Conversation in progress');
-          setTarget(i.id);
-          if (['hero', 'story'].includes(i.id)) setMode('edit');
-          return { selectedId: i.id };
-        },
-      },
-    ];
-    for (const tool of tools) {
-      try {
-        void Promise.resolve(context.registerTool(tool, { signal: controller.signal })).catch(
-          () => {},
-        );
-      } catch {}
-    }
-    return () => controller.abort();
-  }, [work, busy, expired]);
   return (
     <div className="desk">
       <header className="mast">
         <a
           className="brand"
-          href="/"
+          href={document.baseURI}
           onClick={(e) => {
             if (isDemo || busy) e.preventDefault();
           }}
         >
           <span className="brand-mark">✦</span>
           <span>
-            ことばの街<small>AI CHARACTER STUDIO</small>
+            AIたいけん<small>LEARN BY EXPERIMENTING</small>
           </span>
         </a>
         <div className="mast-right">
@@ -334,7 +223,7 @@ export default function App() {
           <p className="eyebrow">ADVENTURE SAVED</p>
           <h1>今日の冒険は、ここまで。</h1>
           <p>
-            つくったキャラクターと会話は保存されています。
+            実験の条件、行動、会話、気づきは保存されています。
             <br />
             先生はログインして、続きから確認できます。
           </p>
@@ -354,12 +243,12 @@ export default function App() {
             <div>
               <p className="eyebrow">TEACHER'S DESK</p>
               <h1>
-                ひとことから、
+                試して、比べて、
                 <br />
-                住人が変わる。
+                AIを知る。
               </h1>
               <p>
-                生徒のことばで性格をつくり、街で動きと会話を試す。
+                同じミッションを、プログラム・チャット・エージェントで体験。
                 <br />
                 60分の体験が終わっても、作品はここに残ります。
               </p>
@@ -370,7 +259,7 @@ export default function App() {
               <i className="mini-person p1" />
               <i className="mini-person p2" />
               <i className="mini-person p3" />
-              <small>10 PEOPLE · YOUR STORY</small>
+              <small>3 MODES · ONE MISSION</small>
             </div>
           </section>
           <nav className="tabs" aria-label="先生メニュー">
@@ -389,7 +278,7 @@ export default function App() {
               <div className="card">
                 <p className="eyebrow">AI MODEL</p>
                 <h2>次の体験で使うモデル</h2>
-                <p>作品を開いたあとにも切り替えられます。生徒にはモデルの変更権限はありません。</p>
+                <p>新しい実験の標準モデルです。生徒も実験内でNovaとHaikuを比較できます。</p>
                 <label>
                   標準モデル
                   <select
@@ -552,21 +441,17 @@ export default function App() {
                 <span className="saved-dot" /> 自動保存 · {date(work.updatedAt)}　
                 {isDemo
                   ? 'AI 残り ' + Math.max(0, 60 - work.sessionAttempts) + ' 回'
-                  : MODELS[work.model].name}
+                  : 'AI ' + work.attempts + ' 回 · 合計 $' + usd(cost(work))}
               </p>
             </div>
             <div className="studio-actions">
               {isTeacher && (
                 <>
-                  <select
-                    aria-label="この作品のAIモデル"
-                    disabled={blocked}
-                    value={work.model}
-                    onChange={(e) => void changeModel(e.target.value as ModelKey)}
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => void act(exportWork)}
                   >
-                    {modelOptions}
-                  </select>
-                  <button className="secondary" disabled={busy} onClick={exportWork}>
                     作品を書き出す
                   </button>
                   {work.status === 'active' && (work.expiresAt ?? 0) > now ? (
@@ -639,212 +524,12 @@ export default function App() {
               </button>
             </div>
           )}
-          <div className="studio-grid">
-            <section className="world-panel">
-              <div className="world-title">
-                <div>
-                  <span className="eyebrow">{work.story.chapterTitle}</span>
-                  <h2>{work.story.worldName}</h2>
-                </div>
-                <button
-                  className="music-button"
-                  onClick={() => void toggleAudio()}
-                  aria-pressed={!muted}
-                >
-                  {muted ? '♪ 音楽をON' : '♪ 音楽をOFF'}
-                </button>
-              </div>
-              <Game work={work} selected={target} onSelect={select} disabled={expired} />
-              <div className="game-foot">
-                <span>クリックで移動 · 矢印 / WASD · 住人を選択して会話</span>
-                <span>
-                  出会い <b>{work.talked.length} / 10</b>
-                </span>
-              </div>
-              <div className="story-intro">
-                <p>{work.story.intro}</p>
-                {work.talked.length === 10 && (
-                  <p className="completion">
-                    ✦ 十人すべてと話しました。街の物語は、あなたのことばで続いていきます。
-                  </p>
-                )}
-              </div>
-              <div className="roster-title">
-                <h3>街の住人</h3>
-                <span>選んで、つくって、話してみよう</span>
-              </div>
-              <div className="roster">
-                {work.npcs.map((n) => (
-                  <button
-                    className={target === n.id ? 'selected' : ''}
-                    key={n.id}
-                    onClick={() => select(n.id)}
-                    disabled={busy}
-                  >
-                    <span className="avatar" style={{ background: n.color }}>
-                      {n.role.slice(0, 1)}
-                    </span>
-                    <span>
-                      {n.name}
-                      <small>{behaviorNames[n.behavior]}</small>
-                    </span>
-                    {work.talked.includes(n.id) && <i>✦</i>}
-                  </button>
-                ))}
-              </div>
-              <div className="world-tools">
-                <button
-                  className={target === 'hero' ? 'selected' : ''}
-                  disabled={busy}
-                  onClick={() => select('hero')}
-                >
-                  ♙ 主人公をつくる
-                </button>
-                <button
-                  className={target === 'story' ? 'selected' : ''}
-                  disabled={busy}
-                  onClick={() => select('story')}
-                >
-                  ▤ 物語をつくる
-                </button>
-              </div>
-              {isTeacher && (
-                <details className="usage">
-                  <summary>この作品のモデル別利用量</summary>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>モデル</th>
-                        <th>呼出</th>
-                        <th>入力</th>
-                        <th>出力</th>
-                        <th>推定 USD</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(work.usage).map(([k, u]) => (
-                        <tr key={k}>
-                          <td>{MODELS[k as ModelKey].shortName}</td>
-                          <td>{u.calls}</td>
-                          <td>{u.inputTokens.toLocaleString()}</td>
-                          <td>{u.outputTokens.toLocaleString()}</td>
-                          <td>
-                            {'$' + usd(u.costMicroUsd)}
-                            {u.unknownCalls > 0 ? ' *' : ''}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <p className="fine">* 使用量不明の呼び出しは上限相当額で計上。</p>
-                </details>
-              )}
-            </section>
-            <section className="editor-panel">
-              <div className="editor-head">
-                <div>
-                  <p className="eyebrow">CHARACTER NOTEBOOK</p>
-                  <h2>{selectedName}</h2>
-                </div>
-                <span className="model-pill">{MODELS[work.model].shortName}</span>
-              </div>
-              <div className="mode-switch">
-                <button
-                  className={mode === 'edit' ? 'active' : ''}
-                  disabled={busy}
-                  onClick={() => setMode('edit')}
-                >
-                  ✎ つくる
-                </button>
-                <button
-                  className={mode === 'talk' ? 'active' : ''}
-                  disabled={busy || !selected}
-                  onClick={() => setMode('talk')}
-                >
-                  ☏ 話す
-                </button>
-              </div>
-              <details className="profile" key={target}>
-                <summary>
-                  現在の設定{' '}
-                  {selected && (
-                    <span>
-                      {behaviorNames[selected.behavior]} · v{selected.version}
-                    </span>
-                  )}
-                </summary>
-                <dl>
-                  {selected ? (
-                    <>
-                      <dt>性格</dt>
-                      <dd>{selected.personality || '未設定'}</dd>
-                      <dt>口調・一人称</dt>
-                      <dd>
-                        {selected.voice} / {selected.firstPerson}
-                      </dd>
-                      <dt>主人公への態度</dt>
-                      <dd>{selected.attitude}</dd>
-                      <dt>好きなこと・目的</dt>
-                      <dd>
-                        {selected.likes.join('、') || '未設定'} / {selected.goal}
-                      </dd>
-                      <dt>記憶</dt>
-                      <dd>{selected.memory || 'まだ会話していません'}</dd>
-                    </>
-                  ) : target === 'hero' ? (
-                    <>
-                      <dt>名前・肩書き</dt>
-                      <dd>
-                        {work.hero.name} / {work.hero.title}
-                      </dd>
-                      <dt>性格・出身</dt>
-                      <dd>
-                        {work.hero.personality} / {work.hero.origin}
-                      </dd>
-                      <dt>目的</dt>
-                      <dd>{work.hero.goal}</dd>
-                    </>
-                  ) : (
-                    <>
-                      <dt>世界・章</dt>
-                      <dd>
-                        {work.story.worldName} / {work.story.chapterTitle}
-                      </dd>
-                      <dt>導入</dt>
-                      <dd>{work.story.intro}</dd>
-                    </>
-                  )}
-                </dl>
-                <button
-                  className="text-button"
-                  disabled={blocked}
-                  onClick={() =>
-                    void act(async () => {
-                      const v = await request('/works/' + work.id + '/undo', 'POST', { target });
-                      setWork(v.work);
-                      setNotice('ひとつ前の設定に戻しました。');
-                    })
-                  }
-                >
-                  ↶ 設定をひとつ戻す
-                </button>
-              </details>
-              <Chat
-                key={work.id + target + mode}
-                work={work}
-                target={target}
-                mode={mode}
-                disabled={blocked}
-                onWork={setWork}
-                onBusy={setBusy}
-              />
-            </section>
-          </div>
+          <Lab key={work.id} work={work} disabled={!!expired} onWork={setWork} onBusy={setBusy} />
         </main>
       ) : null}
       <footer className="footer">
-        <span>ことばの街 · 学びのための小さなRPG</span>
-        <span>CREATE A CHARACTER. MEET A STORY.</span>
+        <span>AIたいけん · 試して、比べて、発見する</span>
+        <span>SET A GOAL. TRY AN ACTION. SEE WHAT HAPPENS.</span>
       </footer>
     </div>
   );
@@ -884,32 +569,28 @@ function Login({ local, onLogin }: { local: boolean; onLogin: () => Promise<void
   return (
     <main className="login-layout">
       <section className="login-copy">
-        <p className="eyebrow">A SMALL TOWN. ENDLESS POSSIBILITIES.</p>
+        <p className="eyebrow">LEARN AI. ONE EXPERIMENT AT A TIME.</p>
         <h1>
-          「臆病だけど、
+          「鍵を返して」
           <br />
-          やさしい人。」
+          そのひとことで、
           <br />
-          <em>
-            そのひとことが、
-            <br />
-            住人をつくる。
-          </em>
+          <em>AIは動ける？</em>
         </h1>
         <p>
-          性格も、話し方も、歩き方も。
+          プログラム、チャット、AIエージェント。
           <br />
-          チャットでつくって、街で確かめる授業用RPG。
+          同じ街で試して、違いを発見する60分。
         </p>
         <div className="facts">
           <span>
+            <b>3</b> つの動かし方
+          </span>
+          <span>
+            <b>2</b> つのAIモデル
+          </span>
+          <span>
             <b>60</b> 分の体験
-          </span>
-          <span>
-            <b>10</b> 人の住人
-          </span>
-          <span>
-            <b>∞</b> ことばの可能性
           </span>
         </div>
       </section>

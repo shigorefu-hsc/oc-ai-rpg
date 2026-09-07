@@ -147,7 +147,37 @@ export class LocalAI implements AI {
     onDelta: (text: string) => void,
   ): Promise<Generated> {
     if (signal.aborted) throw signal.reason;
-    const { input, work } = JSON.parse(p.command.messages![0].content![0].text!);
+    const context = JSON.parse(p.command.messages![0].content![0].text!);
+    if (context.mode) {
+      const last = context.memory.at(-1),
+        loc = context.observation.location;
+      let action: any;
+      if (context.observation.inventory.includes('key'))
+        action =
+          loc === 'market'
+            ? { tool: 'give', person: 'merchant' }
+            : { tool: 'move', place: 'market' };
+      else if (last?.action?.tool === 'look' && last.result.includes('take'))
+        action = { tool: 'take' };
+      else if (last?.result?.includes('落とし物は庭園へ'))
+        action = { tool: 'move', place: 'garden' };
+      else if (loc === 'market')
+        action =
+          last?.action?.tool === 'ask'
+            ? { tool: 'move', place: 'fountain' }
+            : { tool: 'ask', person: 'merchant' };
+      else action = { tool: 'look' };
+      const reply = '【ローカル動作確認】次の行動を選びます。';
+      onDelta(reply);
+      return {
+        raw: JSON.stringify({ reply, action: context.mode === 'chat' ? null : action }),
+        inputTokens: 0,
+        outputTokens: 0,
+        stopReason: 'end_turn',
+        modelId: 'local-fixture-' + p.model,
+      };
+    }
+    const { input, work } = context;
     let update: Record<string, unknown> | null = null;
     if (input.mode === 'edit') {
       if (input.target === 'hero') update = { personality: input.text.slice(0, 300) };

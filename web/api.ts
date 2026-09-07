@@ -1,3 +1,4 @@
+import type { LabRun } from '../shared/lab';
 import { fetchWithCapacityRetry } from './capacity';
 import type { PublicWork, WorkSummary, ModelKey, Turn } from '../shared/domain';
 export type Bootstrap = {
@@ -27,12 +28,16 @@ export function setCsrf(value?: string) {
   csrf = value ?? '';
 }
 export async function request(path: string, method = 'GET', body?: unknown) {
-  const response = await fetchWithCapacityRetry('/api' + path, {
-    method,
-    credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'content-type': 'application/json', 'x-csrf-token': csrf },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const response = await fetchWithCapacityRetry(
+    new URL('api' + path, document.baseURI).toString(),
+    {
+      method,
+      credentials: 'same-origin',
+      headers:
+        body === undefined ? {} : { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+  );
   const value = await response.json();
   if (!response.ok)
     throw new ApiError(response.status, value.error, value.message ?? '通信できませんでした。');
@@ -40,7 +45,14 @@ export async function request(path: string, method = 'GET', body?: unknown) {
 }
 export type ChatEvent = {
   event: string;
-  data: { text?: string; message?: string; code?: string; turn?: Turn; work?: PublicWork };
+  data: {
+    run?: LabRun;
+    text?: string;
+    message?: string;
+    code?: string;
+    turn?: Turn;
+    work?: PublicWork;
+  };
 };
 export async function chat(
   workId: string,
@@ -48,13 +60,24 @@ export async function chat(
   onEvent: (event: ChatEvent) => void,
   signal: AbortSignal,
 ) {
-  const response = await fetchWithCapacityRetry('/api/works/' + workId + '/chat', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
-    body: JSON.stringify(input),
-    signal,
-  });
+  return stream('/works/' + workId + '/chat', input, onEvent, signal);
+}
+export async function stream(
+  path: string,
+  input: unknown,
+  onEvent: (event: ChatEvent) => void,
+  signal: AbortSignal,
+) {
+  const response = await fetchWithCapacityRetry(
+    new URL('api' + path, document.baseURI).toString(),
+    {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify(input),
+      signal,
+    },
+  );
   if (!response.ok) {
     const v = await response.json();
     throw new ApiError(

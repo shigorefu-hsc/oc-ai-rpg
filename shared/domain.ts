@@ -103,6 +103,7 @@ export type Work = {
   sessionCostMicroUsd: number;
   pending: null | { requestId: string; until: number };
   generation: number;
+  labRunId?: string;
 };
 export type PublicWork = Omit<Work, 'activeSessionHash' | 'pending' | 'ownerId'> & {
   busy: boolean;

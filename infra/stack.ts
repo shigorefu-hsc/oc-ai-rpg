@@ -1,3 +1,4 @@
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import {
   Stack,
   StackProps,
@@ -129,6 +130,26 @@ export class RPGStack extends Stack {
       authType: lambda.FunctionUrlAuthType.NONE,
       invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
     });
+    const gateway = new apigateway.RestApi(this, 'DomainGateway', {
+      restApiName: 'oc-ai-rpg-demo-regional',
+      endpointTypes: [apigateway.EndpointType.REGIONAL],
+      cloudWatchRole: false,
+      deployOptions: {
+        stageName: 'demo',
+        tracingEnabled: false,
+        loggingLevel: apigateway.MethodLoggingLevel.OFF,
+        dataTraceEnabled: false,
+      },
+    });
+    const integration = new apigateway.LambdaIntegration(fn, {
+      proxy: true,
+      responseTransferMode: apigateway.ResponseTransferMode.STREAM,
+      timeout: Duration.seconds(90),
+    });
+    gateway.root.addMethod('ANY', integration);
+    gateway.root.addProxy({ defaultIntegration: integration, anyMethod: true });
+    new CfnOutput(this, 'GatewayId', { value: gateway.restApiId });
+    new CfnOutput(this, 'GatewayURL', { value: gateway.url });
     new CfnOutput(this, 'URL', { value: url.url });
     new CfnOutput(this, 'FunctionName', { value: fn.functionName });
     new CfnOutput(this, 'UserPoolId', { value: pool.userPoolId });

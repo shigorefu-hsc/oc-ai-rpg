@@ -1,31 +1,26 @@
-# ことばの街 · AI RPG
+# AIたいけん · AI RPG classroom lab
 
-A classroom RPG where students describe characters in chat and immediately test their personalities, conversations and movement in a browser.
+A one-hour Japanese classroom experience: solve the same lost-key mission with a fixed program, an AI chat assistant, and an agent that chooses tools and observes their actual results.
 
-## Browser demo
-
-- React + TypeScript + Phaser; Japanese classroom interface.
-- Teacher login, one-hour student handover, persistent works and dialogue history.
-- Amazon Nova Lite / Claude Haiku 4.5 selected by the teacher through Amazon Bedrock.
-- Lambda Function URL + Cognito + DynamoDB + private S3. No CloudFront.
-- Per-work undo, NPC memory, model usage accounting and shared AI budget.
+- Three modes, two map scenarios, editable instructions, memory and tool permissions.
+- Step / run / stop / restart; a visible action log, predictions, reflections and experiment comparisons.
+- Amazon Nova Lite and Claude Haiku 4.5 through Bedrock. Students can compare both within the teacher's budgets.
+- Teacher login, one-hour student access, persistent experiment archives and exports.
+- Regional API Gateway + streaming Lambda + Cognito + DynamoDB; external CNAME and ACM for HTTPS. No CloudFront or always-on server.
+- Existing Function URL remains usable. Original desktop game and previous work data are preserved.
 
   npm ci
   npm run dev
 
-Local preview: http://127.0.0.1:5173, teacher / local-demo-only. Local AI is a labelled fixture and does not call AWS.
+Local preview: http://127.0.0.1:5173 — teacher / local-demo-only. Local AI is an explicitly labelled fixture; it never calls AWS.
 
     npm run check
     AWS_PROFILE=default AWS_REGION=ap-northeast-1 npm run deploy
     AWS_PROFILE=default npx tsx scripts/provision-teacher.ts
+    AWS_PROFILE=default npx tsx scripts/configure-domain.ts
 
-See [Architecture and pricing](docs/ARCHITECTURE.md) and [Operations](docs/OPERATIONS.md) for AWS setup, student access, quotas, retained data and limits.
+See [Architecture and pricing](docs/ARCHITECTURE.md), [Operations](docs/OPERATIONS.md), [DNS setup](docs/DNS.md), and the [Japanese lesson guide](docs/LESSON.md).
 
 ## Original desktop version
 
-The Python game is preserved:
-
-- source/: original Python source, editable JSON, music and requirements.
-- installer/: Windows EXE build scripts.
-
-One-click Windows build: installer\build_exe_one_click.bat. If Python is missing, it installs Python through winget. Output: installer\dist\oc_ai_rpg.exe with editable JSON files alongside the executable.
+The Python source in source/ and the Windows scripts in installer/ are unchanged. The former NPC-editing API remains compatible with saved work, but the browser's main experience is now the experiment lab.

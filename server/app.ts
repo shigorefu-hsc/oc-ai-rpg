@@ -1,9 +1,23 @@
+import { prepareLab } from './lab-prompt';
+import {
+  LabRun,
+  LabStepInput,
+  labConfigSchema,
+  newRun,
+  runIdSchema,
+  stepInputSchema,
+  decisionSchema,
+  labContext,
+  program,
+  applyStep,
+} from '../shared/lab';
 import { z } from 'zod';
 import { Store, Row, put, Conflict, Change } from './store';
 import { Auth, AuthError, Session, secret, hash, equal, cookie } from './auth';
-import { AI, Generated } from './bedrock';
+import { AI, Generated, Prepared } from './bedrock';
 import {
   Work,
+  Usage,
   WorkSummary,
   ModelKey,
   MODELS,
@@ -134,9 +148,9 @@ export class App {
     }
     throw error(409, 'CONFLICT', '別の変更を処理しています。少し待ってお試しください。');
   }
-  async handle(req: Request, ip = 'local'): Promise<Response> {
+  async handle(req: Request, ip = 'local', basePath = ''): Promise<Response> {
     try {
-      return await this.route(req, ip);
+      return await this.route(req, ip, basePath);
     } catch (e) {
       if (e instanceof AuthError) return json({ error: e.code, message: e.message }, e.status);
       if (e instanceof z.ZodError)
@@ -155,7 +169,7 @@ export class App {
       );
     }
   }
-  private async route(req: Request, ip: string): Promise<Response> {
+  private async route(req: Request, ip: string, basePath = ''): Promise<Response> {
     const url = new URL(req.url),
       path = url.pathname;
     const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
@@ -301,11 +315,12 @@ export class App {
       return json({ work: publicWork(work) }, 201);
     }
     const match = path.match(
-      /^\/api\/works\/([0-9a-f-]{36})(?:\/(start|invite|end|model|chat|history|undo))?$/,
+      /^\/api\/works\/([0-9a-f-]{36})(?:\/(start|invite|end|model|chat|history|undo|lab-start|lab-runs|lab-step|lab-stop|lab-reflection))?$/,
     );
     if (!match) throw error(404, 'NOT_FOUND', 'ページが見つかりません。');
     const [, id, action] = match;
     const row = await this.authorizedWork(id, who);
+    if (action?.startsWith('lab-')) return this.labRoute(req, who, id, action, row);
     if (!action && req.method === 'GET') return json({ work: publicWork(row.data) });
     if (action === 'history' && req.method === 'GET') {
       const target = url.searchParams.get('target') ?? '',
@@ -353,7 +368,7 @@ export class App {
           Math.floor(expiresAt / 1000),
         ),
       ]);
-      return json({ url: url.origin + '/#join=' + token, expiresAt });
+      return json({ url: url.origin + basePath + '/#join=' + token, expiresAt });
     }
     if (action === 'end' && req.method === 'POST') {
       row.data.status = 'finished';
@@ -588,85 +603,18 @@ export class App {
           input,
           history.items.map((x) => x.data).reverse(),
         );
-        const budgetKey = this.budgetKey();
         const generation = current.data.generation;
-        await this.retry(async () => {
-          const [w, b] = await Promise.all([
-            this.authorizedWork(id, who),
-            this.store.get<Budget>('data', budgetKey),
-          ]);
-          if (w.data.pending?.requestId !== input.requestId || w.data.generation !== generation)
-            throw error(409, 'LEASE', '体験の状態が変わりました。');
-          const budget = b?.data ?? { spent: 0, reserved: 0 };
-          if (w.data.sessionAttempts >= this.config.maxCalls)
-            throw error(
-              429,
-              'CALL_LIMIT',
-              'この体験のAI利用回数に達しました。作品は保存されています。',
-            );
-          if (
-            w.data.sessionCostMicroUsd + prepared.reservationMicroUsd >
-            this.config.sessionBudgetMicroUsd
-          )
-            throw error(429, 'SESSION_BUDGET', 'この体験のAI利用上限に達しました。');
-          if (
-            budget.spent + budget.reserved + prepared.reservationMicroUsd >
-            this.config.monthlyBudgetMicroUsd
-          )
-            throw error(
-              429,
-              'MONTHLY_BUDGET',
-              '今月のAI利用上限に達しました。先生に確認してください。',
-            );
-          w.data.attempts++;
-          w.data.sessionAttempts++;
-          w.data.usage[prepared.model].calls++;
-          budget.reserved += prepared.reservationMicroUsd;
-          await this.store.commit([
-            ...(await this.workChanges(w.data, w)),
-            put('data', budgetKey, 'META', budget, b),
-          ]);
-        });
-        total.calls++;
-        let generated: Generated | undefined,
-          unknown = false;
-        try {
-          generated = await this.ai.generate(prepared, signal, (t) => emit('delta', { text: t }));
-          last = generated;
-        } catch (e) {
-          unknown = true;
-          throw e;
-        } finally {
-          const cost = generated
-            ? Math.ceil(
-                generated.inputTokens * MODELS[prepared.model].inputRate +
-                  generated.outputTokens * MODELS[prepared.model].outputRate,
-              )
-            : prepared.reservationMicroUsd;
-          total.costMicroUsd += cost;
-          total.inputTokens += generated?.inputTokens ?? 0;
-          total.outputTokens += generated?.outputTokens ?? 0;
-          if (unknown) total.unknownCalls++;
-          await this.retry(async () => {
-            const [w, b] = await Promise.all([
-              this.store.get<Work>('data', pk),
-              this.store.get<Budget>('data', budgetKey),
-            ]);
-            if (!w || !b) throw new Error('ACCOUNTING_RECORD_MISSING');
-            b.data.reserved -= prepared.reservationMicroUsd;
-            b.data.spent += cost;
-            const u = w.data.usage[prepared.model];
-            u.inputTokens += generated?.inputTokens ?? 0;
-            u.outputTokens += generated?.outputTokens ?? 0;
-            u.costMicroUsd += cost;
-            if (unknown) u.unknownCalls++;
-            if (w.data.generation === generation) w.data.sessionCostMicroUsd += cost;
-            await this.store.commit([
-              ...(await this.workChanges(w.data, w)),
-              put('data', budgetKey, 'META', b.data, b),
-            ]);
-          });
-        }
+        const generated = await this.paidGenerate(
+          id,
+          who,
+          input.requestId,
+          generation,
+          prepared,
+          total,
+          signal,
+          (t) => emit('delta', { text: t }),
+        );
+        last = generated;
         if (!generated) throw new Error('NO_RESPONSE');
         if (['content_filtered', 'guardrail_intervened'].includes(generated.stopReason))
           throw error(422, 'CONTENT_FILTERED', '授業に合う別の表現で、もう一度書いてみましょう。');
@@ -821,6 +769,331 @@ export class App {
       throw e;
     }
   }
+
+  private async labRoute(
+    req: Request,
+    who: Identity,
+    id: string,
+    action: string,
+    row: Row<Work>,
+  ): Promise<Response> {
+    const pk = workKey(id);
+    if (action === 'lab-runs' && req.method === 'GET') {
+      const page = await this.store.query<LabRun>(
+        'data',
+        pk,
+        'LABRUN#',
+        20,
+        new URL(req.url).searchParams.get('cursor') ?? undefined,
+        true,
+      );
+      return json({ runs: page.items.map((r) => r.data), cursor: page.cursor });
+    }
+    if (action === 'lab-start' && req.method === 'POST') {
+      this.notBusy(row.data);
+      const config = labConfigSchema.parse(await this.body(req));
+      const run = newRun(
+        String(this.now()).padStart(16, '0') + '_' + crypto.randomUUID(),
+        config,
+        this.now(),
+      );
+      const previousRunId = row.data.labRunId;
+      row.data.labRunId = run.id;
+      row.data.updatedAt = this.now();
+      const changes = await this.workChanges(row.data, row);
+      if (previousRunId) {
+        const old = await this.store.get<LabRun>('data', pk, 'LABRUN#' + previousRunId);
+        if (old?.data.status === 'running') {
+          old.data.status = 'stopped';
+          changes.push(put('data', pk, old.sk, old.data, old));
+        }
+      }
+      await this.store.commit([...changes, put('data', pk, 'LABRUN#' + run.id, run, null)]);
+      return json({ run, work: publicWork(row.data) }, 201);
+    }
+    if (action === 'lab-stop' && req.method === 'POST') {
+      const { runId } = z
+        .object({ runId: runIdSchema })
+        .strict()
+        .parse(await this.body(req));
+      const run = await this.store.get<LabRun>('data', pk, 'LABRUN#' + runId);
+      if (!run) throw error(404, 'NOT_FOUND', '実験が見つかりません。');
+      if (run.data.status === 'running') {
+        run.data.status = 'stopped';
+        await this.store.commit([put('data', pk, run.sk, run.data, run)]);
+      }
+      return json({ run: run.data, work: publicWork(row.data) });
+    }
+    if (action === 'lab-reflection' && req.method === 'POST') {
+      const b = z
+        .object({ runId: runIdSchema, reflection: z.string().trim().max(1000) })
+        .strict()
+        .parse(await this.body(req));
+      const run = await this.store.get<LabRun>('data', pk, 'LABRUN#' + b.runId);
+      if (!run) throw error(404, 'NOT_FOUND', '実験が見つかりません。');
+      run.data.reflection = b.reflection;
+      await this.store.commit([put('data', pk, run.sk, run.data, run)]);
+      return json({ run: run.data });
+    }
+    if (action === 'lab-step' && req.method === 'POST') {
+      const input = stepInputSchema.parse(await this.body(req));
+      const fingerprint = hash('lab-step:' + JSON.stringify(input));
+      const prev = await this.store.get<any>('data', pk, 'REQ#' + input.requestId);
+      if (prev) {
+        if (prev.data.fingerprint !== fingerprint)
+          throw error(409, 'DUPLICATE_ID', '別の操作に使用済みのIDです。');
+        if (prev.data.status === 'done')
+          return this.events(async (emit) =>
+            emit('done', { run: prev.data.run, work: publicWork(row.data) }),
+          );
+        throw error(
+          409,
+          'ALREADY_REQUESTED',
+          'この操作は処理中または終了しています。実験履歴を確認してください。',
+        );
+      }
+      this.notBusy(row.data);
+      const run = await this.store.get<LabRun>('data', pk, 'LABRUN#' + input.runId);
+      if (!run || row.data.labRunId !== input.runId)
+        throw error(409, 'RUN_CHANGED', '現在の実験を開き直してください。');
+      if (run.data.status !== 'running')
+        throw error(
+          409,
+          'RUN_FINISHED',
+          '実験は終了しています。条件を変えて、もう一度試してください。',
+        );
+      if (
+        run.data.config.mode !== 'program' &&
+        !(await this.settings(who.session.ownerId)).aiEnabled
+      )
+        throw error(403, 'AI_PAUSED', '先生がAIを一時停止しています。');
+      row.data.pending = { requestId: input.requestId, until: this.now() + 90000 };
+      await this.store.commit([
+        ...(await this.workChanges(row.data, row)),
+        put('data', pk, 'REQ#' + input.requestId, { status: 'pending', fingerprint }, null),
+        put('data', pk, run.sk, run.data, run),
+      ]);
+      return this.events((emit, signal) =>
+        this.labStep(id, who, input, fingerprint, row.data.generation, emit, signal),
+      );
+    }
+    throw error(405, 'METHOD', 'この操作は利用できません。');
+  }
+  private async labStep(
+    id: string,
+    who: Identity,
+    input: LabStepInput,
+    fingerprint: string,
+    generation: number,
+    emit: (e: string, d: unknown) => void,
+    clientSignal: AbortSignal,
+  ) {
+    const pk = workKey(id),
+      total = emptyUsage();
+    const signal = AbortSignal.any([
+      clientSignal,
+      AbortSignal.timeout(Math.max(1, Math.min(75000, who.session.expiresAt - this.now()))),
+    ]);
+    let committed = false;
+    try {
+      const snapshot = await this.store.get<LabRun>('data', pk, 'LABRUN#' + input.runId);
+      if (!snapshot || snapshot.data.status !== 'running')
+        throw error(409, 'STOPPED', '実験を停止しました。');
+      const run = snapshot.data;
+      const context = labContext(run, input.text ?? '');
+      let decision: z.infer<typeof decisionSchema>;
+      let modelId = 'fixed-program';
+      if (run.config.mode === 'program') {
+        decision = {
+          reply: '決められた手順の ' + (run.steps.length + 1) + ' 番目を実行します。',
+          action: program[run.steps.length],
+        };
+      } else {
+        const prepared = prepareLab(run, input.text ?? '', this.config.modelIds);
+        modelId = prepared.modelId;
+        const generated = await this.paidGenerate(
+          id,
+          who,
+          input.requestId,
+          generation,
+          prepared,
+          total,
+          signal,
+          (t) => emit('delta', { text: t }),
+        );
+        modelId = generated.modelId;
+        try {
+          if (generated.stopReason !== 'end_turn') throw new Error('INCOMPLETE');
+          decision = decisionSchema.parse(
+            JSON.parse(generated.raw.trim().replace(/^\x60{3}(?:json)?\s*|\s*\x60{3}$/g, '')),
+          );
+          if (run.config.mode === 'chat' && decision.action !== null)
+            throw new Error('CHAT_CANNOT_ACT');
+          if (run.config.mode === 'agent' && decision.action === null)
+            throw new Error('ACTION_REQUIRED');
+        } catch {
+          throw error(
+            502,
+            'INVALID_OUTPUT',
+            'AIの応答形式を確認できませんでした。行動は実行していません。もう一度試せます。',
+          );
+        }
+      }
+      if (signal.aborted) throw signal.reason;
+      await this.retry(async () => {
+        const w = await this.authorizedWork(id, who);
+        const r = await this.store.get<LabRun>('data', pk, 'LABRUN#' + input.runId);
+        const request = await this.store.get('data', pk, 'REQ#' + input.requestId);
+        if (
+          !r ||
+          !request ||
+          r.data.status !== 'running' ||
+          r.data.steps.length !== run.steps.length ||
+          w.data.labRunId !== run.id ||
+          w.data.pending?.requestId !== input.requestId ||
+          w.data.generation !== generation
+        )
+          throw error(409, 'STOPPED', '実験の状態が変わったため、行動は実行していません。');
+        const next = applyStep(r.data, {
+          requestId: input.requestId,
+          at: this.now(),
+          context,
+          action: decision.action,
+          reply: decision.reply,
+          usage: total,
+          modelId,
+        });
+        w.data.pending = null;
+        w.data.updatedAt = this.now();
+        await this.store.commit([
+          ...(await this.workChanges(w.data, w)),
+          put('data', pk, r.sk, next, r),
+          put('data', pk, request.sk, { status: 'done', fingerprint, run: next }, request),
+        ]);
+        committed = true;
+        emit('done', { run: next, work: publicWork(w.data) });
+      });
+    } catch (e) {
+      if (!committed)
+        await this.retry(async () => {
+          const [w, r, record] = await Promise.all([
+            this.store.get<Work>('data', pk),
+            this.store.get<LabRun>('data', pk, 'LABRUN#' + input.runId),
+            this.store.get<any>('data', pk, 'REQ#' + input.requestId),
+          ]);
+          const changes: Change[] = [];
+          if (w?.data.pending?.requestId === input.requestId) {
+            w.data.pending = null;
+            changes.push(...(await this.workChanges(w.data, w)));
+          }
+          if (record?.data.status === 'pending') {
+            changes.push(put('data', pk, record.sk, { status: 'failed', fingerprint }, record));
+            if (r) {
+              for (const k of Object.keys(total) as (keyof Usage)[]) r.data.usage[k] += total[k];
+              changes.push(put('data', pk, r.sk, r.data, r));
+            }
+          }
+          if (changes.length) await this.store.commit(changes);
+        });
+      throw e;
+    }
+  }
+
+  private async paidGenerate(
+    id: string,
+    who: Identity,
+    requestId: string,
+    generation: number,
+    prepared: Prepared,
+    total: Usage,
+    signal: AbortSignal,
+    onDelta: (text: string) => void,
+  ): Promise<Generated> {
+    const pk = workKey(id);
+    if (!(await this.settings(who.session.ownerId)).aiEnabled)
+      throw error(403, 'AI_PAUSED', '先生がAIを一時停止しています。');
+    const budgetKey = this.budgetKey();
+    await this.retry(async () => {
+      const [w, b] = await Promise.all([
+        this.authorizedWork(id, who),
+        this.store.get<Budget>('data', budgetKey),
+      ]);
+      if (w.data.pending?.requestId !== requestId || w.data.generation !== generation)
+        throw error(409, 'LEASE', '体験の状態が変わりました。');
+      const budget = b?.data ?? { spent: 0, reserved: 0 };
+      if (w.data.sessionAttempts >= this.config.maxCalls)
+        throw error(
+          429,
+          'CALL_LIMIT',
+          'この体験のAI利用回数に達しました。作品は保存されています。',
+        );
+      if (
+        w.data.sessionCostMicroUsd + prepared.reservationMicroUsd >
+        this.config.sessionBudgetMicroUsd
+      )
+        throw error(429, 'SESSION_BUDGET', 'この体験のAI利用上限に達しました。');
+      if (
+        budget.spent + budget.reserved + prepared.reservationMicroUsd >
+        this.config.monthlyBudgetMicroUsd
+      )
+        throw error(
+          429,
+          'MONTHLY_BUDGET',
+          '今月のAI利用上限に達しました。先生に確認してください。',
+        );
+      w.data.attempts++;
+      w.data.sessionAttempts++;
+      w.data.usage[prepared.model].calls++;
+      budget.reserved += prepared.reservationMicroUsd;
+      await this.store.commit([
+        ...(await this.workChanges(w.data, w)),
+        put('data', budgetKey, 'META', budget, b),
+      ]);
+    });
+    total.calls++;
+    let generated: Generated | undefined,
+      unknown = false;
+    try {
+      generated = await this.ai.generate(prepared, signal, onDelta);
+    } catch (e) {
+      unknown = true;
+      throw e;
+    } finally {
+      const cost = generated
+        ? Math.ceil(
+            generated.inputTokens * MODELS[prepared.model].inputRate +
+              generated.outputTokens * MODELS[prepared.model].outputRate,
+          )
+        : prepared.reservationMicroUsd;
+      total.costMicroUsd += cost;
+      total.inputTokens += generated?.inputTokens ?? 0;
+      total.outputTokens += generated?.outputTokens ?? 0;
+      if (unknown) total.unknownCalls++;
+      await this.retry(async () => {
+        const [w, b] = await Promise.all([
+          this.store.get<Work>('data', pk),
+          this.store.get<Budget>('data', budgetKey),
+        ]);
+        if (!w || !b) throw new Error('ACCOUNTING_RECORD_MISSING');
+        b.data.reserved -= prepared.reservationMicroUsd;
+        b.data.spent += cost;
+        const u = w.data.usage[prepared.model];
+        u.inputTokens += generated?.inputTokens ?? 0;
+        u.outputTokens += generated?.outputTokens ?? 0;
+        u.costMicroUsd += cost;
+        if (unknown) u.unknownCalls++;
+        if (w.data.generation === generation) w.data.sessionCostMicroUsd += cost;
+        await this.store.commit([
+          ...(await this.workChanges(w.data, w)),
+          put('data', budgetKey, 'META', b.data, b),
+        ]);
+      });
+    }
+
+    if (!generated) throw new Error('NO_RESPONSE');
+    return generated;
+  }
+
   private currentProfile(work: Work, target: string) {
     const value =
       target === 'hero'

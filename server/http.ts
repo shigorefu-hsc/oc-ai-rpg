@@ -11,10 +11,16 @@ const mime: Record<string, string> = {
   '.wav': 'audio/wav',
   '.ico': 'image/x-icon',
 };
-export async function serve(app: App, req: Request, ip: string, root: string): Promise<Response> {
+export async function serve(
+  app: App,
+  req: Request,
+  ip: string,
+  root: string,
+  basePath = '',
+): Promise<Response> {
   const path = new URL(req.url).pathname;
   let response: Response;
-  if (path.startsWith('/api/')) response = await app.handle(req, ip);
+  if (path.startsWith('/api/')) response = await app.handle(req, ip, basePath);
   else if (!['GET', 'HEAD'].includes(req.method))
     response = new Response('Method not allowed', { status: 405 });
   else {
@@ -26,7 +32,11 @@ export async function serve(app: App, req: Request, ip: string, root: string): P
       response = new Response('Not found', { status: 404 });
     else
       try {
-        const body = await readFile(file);
+        let body = await readFile(file);
+        if (extname(file) === '.html')
+          body = Buffer.from(
+            body.toString().replace('<head>', '<head><base href="' + basePath + '/">'),
+          );
         response = new Response(req.method === 'HEAD' ? null : body, {
           headers: {
             'content-type': mime[extname(file)] ?? 'application/octet-stream',
@@ -49,7 +59,7 @@ export async function serve(app: App, req: Request, ip: string, root: string): P
       'content-security-policy',
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' https://" +
         app.config.assetBucket +
-        ".s3.ap-northeast-1.amazonaws.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        ".s3.ap-northeast-1.amazonaws.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     );
   }
   return response;
